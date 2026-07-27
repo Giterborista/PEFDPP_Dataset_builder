@@ -1,0 +1,48 @@
+{
+  "metadata": {
+    "rule": "Values are exact individuals used by the publication ontology and its battery PEF case study.",
+    "sources": ["pefstudy.ttl", "product-system.ttl", "ef31-impactcategories.ttl", "battery-pef.ttl"]
+  },
+  "boundaryTypes": [
+    {"uri": "https://w3id.org/mintjesba/pefdpp/pefstudy#CradleToGrave", "label": "Cradle-to-grave"},
+    {"uri": "https://w3id.org/mintjesba/pefdpp/pefstudy#CradleToGate", "label": "Cradle-to-gate"}
+  ],
+  "lifeCycleStages": [
+    {"uri": "https://w3id.org/mintjesba/pefdpp/product-system#RawMaterialAcquisition", "label": "Raw material acquisition"},
+    {"uri": "https://w3id.org/mintjesba/pefdpp/product-system#Manufacturing", "label": "Manufacturing"},
+    {"uri": "https://w3id.org/mintjesba/pefdpp/product-system#Distribution", "label": "Distribution"},
+    {"uri": "https://w3id.org/mintjesba/pefdpp/product-system#Use", "label": "Use"},
+    {"uri": "https://w3id.org/mintjesba/pefdpp/product-system#EndOfLife", "label": "End of life"}
+  ],
+  "quantityUnits": [
+    {"uri": "http://www.ontology-of-units-of-measure.org/resource/om-2/kilowattHour", "label": "kWh"},
+    {"uri": "https://w3id.org/mintjesba/pefdpp/ef31-units#Kilogram", "label": "kg"},
+    {"uri": "https://w3id.org/mintjesba/pefdpp/ef31-units#Item", "label": "item(s)"},
+    {"uri": "https://w3id.org/mintjesba/pefdpp/ef31-units#Megajoule", "label": "MJ"},
+    {"uri": "https://w3id.org/mintjesba/pefdpp/ef31-units#SquareMetre", "label": "m²"},
+    {"uri": "https://w3id.org/mintjesba/pefdpp/ef31-units#CubicMetre", "label": "m³"}
+  ],
+  "durationUnits": [
+    {"uri": "http://www.ontology-of-units-of-measure.org/resource/om-2/year", "label": "year"},
+    {"uri": "http://www.ontology-of-units-of-measure.org/resource/om-2/day", "label": "day"},
+    {"uri": "http://www.ontology-of-units-of-measure.org/resource/om-2/hour", "label": "hour"}
+  ],
+  "impactCategories": [
+    {"uri": "https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#Acidification", "label": "Acidification"},
+    {"uri": "https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#ClimateChange", "label": "Climate change"},
+    {"uri": "https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#EcoToxicityFreshwater", "label": "Ecotoxicity, freshwater"},
+    {"uri": "https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#EutrophicationMarine", "label": "Eutrophication, marine"},
+    {"uri": "https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#EutrophicationFreshwater", "label": "Eutrophication, freshwater"},
+    {"uri": "https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#EutrophicationTerrestrial", "label": "Eutrophication, terrestrial"},
+    {"uri": "https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#HumanToxicityCancer", "label": "Human toxicity, cancer"},
+    {"uri": "https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#HumanToxicityNonCancer", "label": "Human toxicity, non-cancer"},
+    {"uri": "https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#IonisingRadiationHumanHealth", "label": "Ionising radiation, human health"},
+    {"uri": "https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#LandUse", "label": "Land use"},
+    {"uri": "https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#OzoneDepletion", "label": "Ozone depletion"},
+    {"uri": "https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#ParticulateMatter", "label": "Particulate matter"},
+    {"uri": "https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#PhotochemicalOzoneFormationHumanHealth", "label": "Photochemical ozone formation, human health"},
+    {"uri": "https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#ResourceUseFossils", "label": "Resource use, fossils"},
+    {"uri": "https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#ResourceUseMineralsAndMetals", "label": "Resource use, minerals and metals"},
+    {"uri": "https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#WaterUse", "label": "Water use"}
+  ]
+}

@@ -1,0 +1,110 @@
+@prefix :        <https://w3id.org/mintjesba/pefdpp/cases/pv_panel/pv_dataset#> .
+@prefix bft:      <https://w3id.org/mintjesba/pefdpp/cases/bonsai/bonsai_flowtypes#> .
+@prefix pefdpp:  <https://w3id.org/mintjesba/pefdpp/> .
+@prefix dataset: <https://w3id.org/mintjesba/pefdpp/dataset#> .
+@prefix act:     <https://w3id.org/mintjesba/pefdpp/activity#> .
+@prefix flow:    <https://w3id.org/mintjesba/pefdpp/flow#> .
+@prefix dq:      <https://w3id.org/mintjesba/pefdpp/dataquality#> .
+@prefix efu:     <https://w3id.org/mintjesba/pefdpp/ef31-units#> .
+@prefix geo:     <https://w3id.org/mintjesba/pefdpp/skos/pef-geographies#> .
+@prefix om:      <http://www.ontology-of-units-of-measure.org/resource/om-2/> .
+@prefix owl:     <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:    <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:     <http://www.w3.org/2001/XMLSchema#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+
+######################################################################
+# Ontology header (one per file, importing the root pefdpp.ttl)
+######################################################################
+<https://w3id.org/mintjesba/pefdpp/cases/YOUR-CASE/YOUR-DATASET>
+    a owl:Ontology ;
+    owl:imports pefdpp: ;
+    dcterms:title "PVPanel — LCIDataset (case study)"@en ;
+    dcterms:creator "Berend Mintjes - Leiden University" .
+
+######################################################################
+# LCIDataset
+######################################################################
+:PVPanelDataset
+    a dataset:LCIDataset ;
+    dcterms:title "PV Panel DPP generated from Frischknecht et al. (2021), PVPS T12"@en ;
+
+    # REQUIRED (:PEFRequired true)
+    dataset:hasDatasetType dataset:DPP ;                # or dataset:Secondary
+    dataset:hasComplianceLevel dataset:EFCompliant ;    # or ILCDEntryLevelCompliant / NotEFCompliant
+    dataset:containsActivity 
+            :PVPanelProduction ,
+            :PVCellProduction ,
+            :SiWaferProduction ;
+    .
+
+######################################################################
+# ActivityType(s) used by this dataset — declare before use
+######################################################################
+:MonoSiPanelProduction a act:ActivityType ; rdfs:label "photovoltaic panel production, single-Si, at plant"@en .
+:MonoSiCellProduction a act:ActivityType ; rdfs:label "photovoltaic cell production, single-Si, at plant"@en .
+:MonoSiWaferProduction a act:ActivityType ; rdfs:label "single-Si wafer, photovoltaics, at plant"@en .
+
+######################################################################
+# FlowTypes
+######################################################################
+:FT_MonoSiPanel 
+    a flow:ProductFlow ;
+    flow:sourcedFrom :PVPanelDataset ;
+    rdfs:label "photovoltaic panel, single-Si, at plant"
+    .
+
+:FT_MonoSiCell
+    a flow:ProductFlow ;
+    flow:sourcedFrom :PVPanelDataset ;
+    rdfs:label "photovoltaic cell, single-Si, at plant"@en ;
+    .
+
+:FT_MonoSiWafer
+    a flow:ProductFlow ;
+    flow:sourcedFrom :PVPanelDataset ;
+    rdfs:label "single-Si wafer, photovoltaics, at plant"@en ;
+    .
+
+######################################################################
+# Activity Single-Si Panel Production
+######################################################################
+act:MonoSiPanelProduction
+    a act:Activity ;
+
+    # REQUIRED
+    act:hasActivityType act:MonoSiPanelProduction ;
+    act:isCompanySpecific true ;                         # xsd:boolean
+    act:hasGeography geo:CN ;                             # from pef-geographies skos scheme
+    act:hasDeterminingFlow :Panel_F_DF_MonoSiPanel ;
+    .
+
+######################################################################
+# Flows — the determining (reference) flow, plus other inputs/outputs
+######################################################################
+
+
+# Determining Flow — must match act:hasDeterminingFlow above
+:Panel_F_DF_MonoSiPanel
+    a flow:Flow ;
+    flow:hasFlowType :FT_MonoSiPanel ;
+    flow:contextualLabel "photovoltaic panel, single-Si, at plant"@en ;
+    act:outputOf :MonoSiPanelProduction ;
+    flow:hasMeasure [ a om:Measure ; om:hasUnit efu:Kilogram ; om:hasNumericalValue "1"^^xsd:decimal ] ;
+    .
+
+:Panel_F_I_MonoSiCell
+    a flow:Flow ;
+    flow:hasFlowType :FT_MonoSiCell ;
+    flow:contextualLabel "photovoltaic cell, single-Si, at plant"@en ;
+    act:inputOf :MonoSiPanelProduction ;
+    flow:hasMeasure [ a om:Measure ; om:hasUnit efu:Kilogram ; om:hasNumericalValue "0.935415"^^xsd:decimal ] ;
+    .
+
+:Panel_F_I_AluminiumAlloy
+    a flow:Flow ;
+    flow:hasFlowType bft:FT_M_ALUM_01_RES;
+    flow:contextualLabel "aluminium alloy, AlMg3, at plant"@en;
+    act:inputOf :MonoSiPanelProduction ;
+    flow:hasMeasure [ a om:Measure ; om:hasUnit efu:Kilogram ; om:hasNumericalValue "2.125"^^xsd:decimal ] ;
+    .

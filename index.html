@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CE-RISE PEFDPP Dataset Builder</title>
+    <link rel="stylesheet" href="styles/styles.css?v=20260727-11" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div>
+          <strong>CE-RISE</strong>
+          <span>PEFDPP dataset builder</span>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <input id="ttlUpload" type="file" hidden accept=".ttl,text/turtle,text/plain" />
+        <button id="importTtlButton" class="button quiet" type="button">Import dataset</button>
+        <details class="header-menu">
+          <summary class="button quiet" role="button">Examples</summary>
+          <div class="menu-popover">
+            <button id="loadExample" type="button">Product example</button>
+            <button id="loadPvTtl" type="button">PV ontology example</button>
+          </div>
+        </details>
+        <button id="resetDataset" class="button new-dataset" type="button">New dataset</button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <nav class="steps" aria-label="Dataset creation steps">
+        <button id="stepDataset" class="step-button active" type="button" data-step="dataset">
+          <span class="step-number">1</span>
+          <span><strong>Dataset</strong><small id="navDatasetTitle">Example product LCI dataset</small></span>
+        </button>
+        <span class="step-line" aria-hidden="true"></span>
+        <button id="stepActivities" class="step-button" type="button" data-step="activities">
+          <span class="step-number">2</span>
+          <span><strong>Activities</strong><small id="stepActivityMeta">1 activity</small></span>
+        </button>
+        <span class="step-line" aria-hidden="true"></span>
+        <button id="stepStudy" class="step-button" type="button" data-step="study">
+          <span class="step-number">3</span>
+          <span><strong>Goal &amp; scope</strong><small id="stepStudyMeta">Draft</small></span>
+        </button>
+        <span class="step-line" aria-hidden="true"></span>
+        <button id="stepReview" class="step-button" type="button" data-step="review">
+          <span class="step-number">4</span>
+          <span><strong>Review &amp; export</strong><small id="stepReviewMeta">Draft</small></span>
+        </button>
+      </nav>
+
+      <section id="panelDataset" class="step-panel active" data-step-panel="dataset">
+        <div class="page-heading">
+          <div>
+            <p class="step-kicker">Step 1 of 4</p>
+            <h1>Dataset information</h1>
+            <p>Create a dataset containing one product system.</p>
+          </div>
+        </div>
+
+        <div class="dataset-layout">
+        <div class="form-panel dataset-form">
+          <label class="wide-field">
+            Dataset title
+            <input id="datasetTitle" type="text" value="Example product LCI dataset" />
+          </label>
+          <div class="field-grid">
+            <label>
+              Dataset type
+              <select id="datasetType">
+                <option>DPP</option>
+                <option>Secondary</option>
+              </select>
+            </label>
+            <label>
+              Compliance level
+              <select id="complianceLevel">
+                <option>EFCompliant</option>
+                <option>ILCDEntryLevelCompliant</option>
+                <option>NotEFCompliant</option>
+              </select>
+            </label>
+          </div>
+          <label class="wide-field">
+            Product system name
+            <input id="productSystemName" type="text" value="Example product system" />
+          </label>
+          <details class="advanced-details">
+            <summary>Advanced identifiers</summary>
+            <div class="advanced-fields">
+          <label class="wide-field">
+            Dataset namespace
+            <input id="datasetNamespace" type="url" value="https://w3id.org/cerise-see/datasets/example#" spellcheck="false" />
+          </label>
+          <label class="wide-field">
+            Dataset URI
+            <output id="datasetUriPreview" class="identifier-preview"></output>
+          </label>
+          <label class="wide-field">
+            Product system URI
+            <input id="productSystemUri" type="url" value="https://w3id.org/cerise-see/datasets/example#product-system" spellcheck="false" />
+          </label>
+            </div>
+          </details>
+        </div>
+        <aside class="dataset-context-card">
+          <div class="mini-model"><strong>LCI dataset</strong><span>↓</span><strong>Product system</strong><span>↓</span><strong>Activities and flows</strong></div>
+        </aside>
+        </div>
+
+        <footer class="step-footer end">
+          <span id="navDatasetMeta" class="footer-note">DPP · EFCompliant</span>
+          <button class="button primary" type="button" data-go-step="activities">Continue to activities</button>
+        </footer>
+      </section>
+
+      <section id="panelActivities" class="step-panel" data-step-panel="activities" hidden>
+        <div class="page-heading">
+          <div>
+            <p class="step-kicker">Step 2 of 4</p>
+            <h1>Activities and flows</h1>
+            <p>Each activity describes one process. Add what enters it and what leaves it.</p>
+          </div>
+          <button id="addActivity" class="button" type="button">+ Add activity</button>
+        </div>
+
+        <section id="validationCenter" class="validation-center" aria-live="polite"></section>
+
+        <div class="activity-workspace">
+          <aside class="activity-sidebar" aria-label="Activities">
+            <div class="sidebar-heading">
+              <strong>Activities</strong>
+              <span id="activityCount">0</span>
+            </div>
+            <div id="activityNav" class="activity-nav"></div>
+          </aside>
+
+          <div class="activity-content">
+            <select id="activeActivity" class="visually-hidden" aria-hidden="true"></select>
+
+            <section class="form-panel compact-panel">
+              <div class="section-heading">
+                <div>
+                  <span class="ontology-label">Activity</span>
+                  <h2>Activity details</h2>
+                </div>
+              </div>
+              <div id="activitiesList"></div>
+            </section>
+
+            <section class="form-panel compact-panel">
+              <div class="section-heading flow-section-heading">
+                <div>
+                  <span class="ontology-label">Flow</span>
+                  <h2>Inputs and outputs</h2>
+                </div>
+                <div class="flow-actions">
+                  <button id="addInputFlow" class="button compact" type="button">+ Input</button>
+                  <button id="addOutputFlow" class="button compact" type="button">+ Output</button>
+                </div>
+              </div>
+              <div id="processPreview" class="process-preview" aria-label="Live activity process preview"></div>
+              <div id="flowsList"></div>
+            </section>
+          </div>
+        </div>
+
+        <footer class="step-footer">
+          <button class="button quiet" type="button" data-go-step="dataset">Back</button>
+          <button class="button primary" type="button" data-go-step="study">Continue to goal &amp; scope</button>
+        </footer>
+      </section>
+
+      <section id="panelStudy" class="step-panel" data-step-panel="study" hidden>
+        <div class="page-heading">
+          <div>
+            <p class="step-kicker">Step 3 of 4</p>
+            <h1>Goal and scope</h1>
+            <p>Describe why the study is performed, what function is assessed, and which boundary applies.</p>
+          </div>
+        </div>
+
+        <section id="studyValidationCenter" class="validation-center" aria-live="polite"></section>
+
+        <div class="study-layout">
+        <aside class="study-nav" aria-label="Goal and scope sections"><a href="#studyPurpose">Study purpose <span id="studyPurposeStatus"></span></a><a href="#functionalUnit">Functional unit <span id="functionalUnitStatus"></span></a><a href="#systemBoundary">System boundary <span id="systemBoundaryStatus"></span></a></aside>
+        <div class="study-sections">
+          <section id="studyPurpose" class="form-panel study-card">
+            <div class="section-heading">
+              <div><h2>Study purpose</h2></div>
+            </div>
+            <div class="field-grid">
+              <label>Study title<input id="studyTitle" type="text" /></label>
+            </div>
+            <label class="wide-field">Intended application<textarea id="intendedApplication" rows="2"></textarea></label>
+            <label class="wide-field">Decision context<input id="decisionContext" type="text" /></label>
+            <div class="agent-grid">
+              <fieldset>
+                <legend>Commissioner</legend>
+                <label>Name<input id="commissionerName" type="text" /></label>
+              </fieldset>
+              <fieldset>
+                <legend>Verifier</legend>
+                <label>Name<input id="verifierName" type="text" /></label>
+              </fieldset>
+            </div>
+            <details class="advanced-identifiers"><summary>Advanced identifiers</summary><div class="field-grid"><label>Study URI<input id="studyUri" type="url" spellcheck="false" /></label><label>Commissioner URI<input id="commissionerUri" type="url" spellcheck="false" /></label><label>Verifier URI<input id="verifierUri" type="url" spellcheck="false" /></label></div></details>
+          </section>
+
+          <section id="functionalUnit" class="form-panel study-card">
+            <div class="section-heading">
+              <div><h2>Functional unit</h2></div>
+            </div>
+            <div class="field-grid">
+              <label>What is provided?<input id="fuWhat" type="text" /></label>
+              <label>How well?<input id="fuHowWell" type="text" /></label>
+            </div>
+            <div class="measure-grid">
+              <label>How much?<input id="fuHowMuchValue" type="number" step="any" /></label>
+              <label>Unit<select id="fuHowMuchUnit"></select></label>
+              <label>For how long?<input id="fuHowLongValue" type="number" step="any" /></label>
+              <label>Unit<select id="fuHowLongUnit"></select></label>
+            </div>
+            <div id="fuPreview" class="fu-preview"></div>
+            <div class="reference-flow-row"><span>Fulfilled by:</span><select id="fuReferenceFlow"></select></div>
+            <label class="compact-conversion">Quantity required to fulfil the functional unit<input id="fuConversion" type="number" step="any" /></label>
+            <details class="study-optional"><summary>Optional scope note</summary><div class="optional-fields"><label>Aspect not covered<input id="fuNotCovered" type="text" /></label></div></details>
+          </section>
+
+          <section id="systemBoundary" class="form-panel study-card">
+            <div class="section-heading">
+              <div><h2>System boundary</h2></div>
+            </div>
+            <label class="wide-field">Boundary type<select id="boundaryType"></select></label>
+            <label class="wide-field">Cut-off criteria<textarea id="cutOffCriteria" rows="2"></textarea></label>
+            <label class="wide-field">Boundary justification<textarea id="boundaryJustification" rows="2"></textarea></label>
+            <div id="lifeCycleCoverage" class="lifecycle-coverage"></div>
+            <details class="study-optional">
+              <summary>Optional exclusions and scope notes</summary>
+              <div class="optional-fields">
+                <label>Excluded activity or process<textarea id="excludedActivity" rows="2"></textarea></label>
+                <label>Exclusion justification<textarea id="exclusionJustification" rows="2"></textarea></label>
+                <label>Assumptions<textarea id="scopeAssumption" rows="2"></textarea></label>
+                <label>Limitations<textarea id="scopeLimitation" rows="2"></textarea></label>
+                <label>Biodiversity relevance<textarea id="biodiversityRelevance" rows="2"></textarea></label>
+              </div>
+            </details>
+            <div id="boundaryObservation" class="boundary-observation"></div>
+          </section>
+        </div>
+        </div>
+
+        <footer class="step-footer">
+          <button class="button quiet" type="button" data-go-step="activities">Back to activities</button>
+          <button class="button primary" type="button" data-go-step="review">Review study</button>
+        </footer>
+      </section>
+
+      <section id="panelReview" class="step-panel" data-step-panel="review" hidden>
+        <div class="page-heading">
+          <div>
+            <p class="step-kicker">Step 4 of 4</p>
+            <h1>Review, calculate and export</h1>
+            <p>Inspect how activities are connected, review the climate-change result and export the semantic dataset.</p>
+          </div>
+          <span class="status-pill" id="statusPill">Draft</span>
+        </div>
+
+        <section class="outcome-cards" aria-label="Review outcomes">
+          <button class="outcome-card" type="button" data-review-target="systemGraph"><span class="outcome-eyebrow">Product system</span><strong id="outcomeSystemValue">0 activities · 0 connections</strong><span id="outcomeSystemStatus">Needs review</span></button>
+          <button class="outcome-card climate" type="button" data-review-target="climateImpact"><span class="outcome-eyebrow">Climate-change result</span><strong id="outcomeClimateValue">Not calculated</strong><span id="outcomeClimateStatus">Inventory unresolved</span></button>
+          <button class="outcome-card" type="button" data-review-target="dataExport"><span class="outcome-eyebrow">Semantic dataset</span><strong>JSON-LD + Turtle</strong><span id="outcomeExportStatus">Draft</span></button>
+        </section>
+
+        <section id="reviewValidationCenter" class="validation-center" aria-live="polite"></section>
+
+        <section id="systemGraph" class="review-panel system-graph-panel">
+          <div class="section-heading">
+            <div>
+              <h2>Product-system connections</h2>
+            </div>
+          </div>
+          <div id="graphPreview" class="system-graph" aria-label="Product system graph"></div>
+        </section>
+
+        <section id="climateImpact" class="review-panel climate-panel">
+          <div class="section-heading">
+            <div>
+              <h2>Climate impact</h2>
+            </div>
+          </div>
+          <div id="climateImpactContent"></div>
+        </section>
+
+        <section id="dataExport" class="review-panel export-panel">
+          <div class="export-heading">
+            <div>
+              <h2>Export files</h2>
+            </div>
+          </div>
+          <div class="export-format-cards"><article><h3>JSON-LD</h3><span id="jsonExportState" class="status-pill">Draft</span><div><button id="downloadJson" class="button compact" type="button">Download</button><button class="button compact quiet" type="button" data-export-preview="json">Preview</button></div></article><article><h3>Turtle</h3><span id="ttlExportState" class="status-pill">Draft</span><div><button id="downloadTtl" class="button compact" type="button">Download</button><button class="button compact quiet" type="button" data-export-preview="ttl">Preview</button></div></article></div>
+          <div class="export-both"><button id="downloadBoth" class="button primary" type="button">Download both formats</button><span id="exportFeedback" class="export-feedback" aria-live="polite"></span></div>
+
+          <details class="source-details">
+            <summary>View generated source</summary>
+            <div class="source-toolbar">
+              <div class="segmented" role="group" aria-label="Export format">
+                <button id="showJson" class="segment active" type="button">JSON-LD</button>
+                <button id="showTtl" class="segment" type="button">TTL</button>
+              </div>
+              <button id="copyExport" class="button compact quiet" type="button">Copy source</button>
+            </div>
+            <textarea id="exportOutput" readonly spellcheck="false"></textarea>
+          </details>
+        </section>
+
+        <details class="review-details provenance-details">
+          <summary>Background data and calculation details</summary>
+          <div id="reviewBonsaiLookup"></div>
+        </details>
+
+        <details class="review-details semantic-details">
+          <summary>Semantic dataset structure</summary>
+          <div id="semanticTree" class="semantic-tree"></div>
+        </details>
+
+        <details id="compatSection" class="review-details compat-panel" hidden>
+          <summary id="compatSummary">Imported dataset details</summary>
+          <div class="section-heading">
+            <div>
+              <span class="ontology-label">Imported dataset</span>
+              <h2>Compatibility check</h2>
+            </div>
+            <span class="status-pill" id="compatStatus">No TTL loaded</span>
+          </div>
+          <div id="compatReport" class="compat-report"></div>
+        </details>
+
+        <footer class="step-footer">
+          <button class="button quiet" type="button" data-go-step="study">Back to goal &amp; scope</button>
+        </footer>
+      </section>
+    </main>
+
+  <script src="src/app.js?v=20260727-11"></script>
+  </body>
+</html>
