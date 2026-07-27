@@ -12,11 +12,14 @@ The prototype lets a user define:
 - preservation of exact imported FlowType URIs, including EF 3.1 elementary-flow individuals
 - a single searchable dropdown for selecting an exact EF 3.1 elementary-flow individual
 - ProductFlow input sourcing from another activity's ProductFlow output through a shared exact FlowType URI
+- searchable BONSAI mappings for ProductFlow inputs and outputs, and WasteFlow outputs
+- activity-geography matching and physical-unit preference for BONSAI records, with only explicit supported conversions
+- climate-change contributions from supplying ProductFlow inputs and WasteFlow treatment; ProductFlow output mappings are descriptive and are not counted twice
 - a visible error centre for incomplete activities, unresolved product sources, and disconnected activity groups
 - one determining output flow per activity
 - JSON-LD and Turtle exports using the same ontology relations
 
-This version has no Brightway, no backend, and no calculation engine. It is intended to be deployable as a Render Static Site.
+This version has no Brightway and no backend. It uses a static BONSAI v2.1.6 GWP100 catalogue for the limited climate-change calculation shown in the browser. It is intended to be deployable as a Render Static Site.
 
 ## Run locally
 
@@ -39,4 +42,4 @@ python scripts/build_ontology_indexes.py \
   --output-dir data
 ```
 
-The browser does not maintain separate hardcoded geography or unit lists. The elementary-flow index drives the searchable dropdown and preserves the selected ontology individual's exact URI. BONSAI is shown only as a future product-source option until an exact BONSAI catalogue is connected; it is not silently inferred or exported as a resolved provider.
+The browser does not maintain separate hardcoded geography or unit lists. The elementary-flow index drives the searchable dropdown and preserves the selected ontology individual's exact URI. `data/bonsai-catalogue-index.json` contains the static BONSAI provider catalogue. When a provider has monetary and physical records for the same region, the UI prefers a compatible physical reference unit and records the exact selected provider offering in the semantic export.
