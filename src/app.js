@@ -17,9 +17,10 @@ const NS = {
 };
 
 const FLOW_CLASSES = ["ProductFlow", "WasteFlow", "ElementaryFlow"];
-const DEFAULT_NAMESPACE = "https://w3id.org/cerise-see/datasets/example#";
+const DEFAULT_NAMESPACE = "https://w3id.org/cerise-see/datasets/simple-product#";
 const KG_URI = `${NS.unit}Kilogram`;
 const CN_URI = `${NS.geography}CN`;
+const GLO_URI = `${NS.geography}GLO`;
 const LIFE_CYCLE_STAGES = [
   ["RawMaterialAcquisition", "Raw material acquisition"],
   ["Manufacturing", "Manufacturing"],
@@ -40,18 +41,9 @@ const state = {
   bonsai: { entries: null, metadata: null, loading: false, error: "", openFlowId: "" },
   flowTypes: [
     {
-      id: "ft-assembled-product",
-      uri: `${DEFAULT_NAMESPACE}assembled-product`,
-      label: "assembled product",
-      className: "ProductFlow",
-      ontologyManaged: false,
-      preferredUnitUri: "",
-      search: ""
-    },
-    {
-      id: "ft-aluminium-component",
-      uri: `${DEFAULT_NAMESPACE}aluminium-component`,
-      label: "aluminium component",
+      id: "ft-finished-product",
+      uri: `${DEFAULT_NAMESPACE}finished-product`,
+      label: "finished product",
       className: "ProductFlow",
       ontologyManaged: false,
       preferredUnitUri: "",
@@ -60,15 +52,15 @@ const state = {
   ],
   productSystem: {
     uri: `${DEFAULT_NAMESPACE}product-system`,
-    name: "Example product system"
+    name: "Simple product system"
   },
   study: {
     uri: `${DEFAULT_NAMESPACE}pef-study`,
-    title: "Example PEF study",
+    title: "Simple product footprint study",
     goal: {
       uri: `${DEFAULT_NAMESPACE}goal`,
-      intendedApplication: "Assess the environmental footprint of the modelled product system.",
-      decisionContext: "Internal product assessment",
+      intendedApplication: "Describe the environmental footprint of the modelled product system.",
+      decisionContext: "Internal product improvement",
       commissionerUri: `${DEFAULT_NAMESPACE}commissioner`,
       commissionerName: "Study commissioner",
       verifierUri: `${DEFAULT_NAMESPACE}verifier`,
@@ -83,7 +75,7 @@ const state = {
     },
     functionalUnit: {
       uri: `${DEFAULT_NAMESPACE}functional-unit`,
-      whatProvided: "One assembled product",
+      whatProvided: "One finished product",
       howWellProvided: "At the specified product performance",
       howMuchValue: "1",
       howMuchUnitUri: KG_URI,
@@ -95,7 +87,7 @@ const state = {
     },
     systemBoundary: {
       uri: `${DEFAULT_NAMESPACE}system-boundary`,
-      boundaryTypeUri: `${NS.pefStudy}CradleToGrave`,
+      boundaryTypeUri: `${NS.pefStudy}CradleToGate`,
       cutOffCriteria: "No cut-off applied in this proof of concept.",
       justification: "Boundary follows the activities included in the product system.",
       excludesActivity: "",
@@ -103,40 +95,30 @@ const state = {
     }
   },
   dataset: {
-    uri: `${DEFAULT_NAMESPACE}example-product-lci-dataset`,
+    uri: `${DEFAULT_NAMESPACE}simple-product-dataset`,
     namespace: DEFAULT_NAMESPACE,
-    title: "Example product LCI dataset",
+    title: "Simple product dataset",
     type: "DPP",
     complianceLevel: "EFCompliant",
     activities: [
       {
         id: "act-1",
         uri: `${DEFAULT_NAMESPACE}act-1`,
-        name: "Product assembly",
+        name: "Product manufacturing",
         activityLinkUri: `${DEFAULT_NAMESPACE}activity-link-act-1`,
         lifeCycleStageUri: `${NS.productSystem}Manufacturing`,
-        geographyUri: CN_URI,
+        geographyUri: GLO_URI,
         companySpecific: true,
         flows: [
           {
             id: "flow-1",
             uri: `${DEFAULT_NAMESPACE}flow-1`,
-            label: "assembled product",
+            label: "finished product",
             direction: "output",
-            flowTypeUri: `${DEFAULT_NAMESPACE}assembled-product`,
+            flowTypeUri: `${DEFAULT_NAMESPACE}finished-product`,
             amount: "1",
             unitUri: KG_URI,
             determining: true
-          },
-          {
-            id: "flow-2",
-            uri: `${DEFAULT_NAMESPACE}flow-2`,
-            label: "aluminium component",
-            direction: "input",
-            flowTypeUri: `${DEFAULT_NAMESPACE}aluminium-component`,
-            amount: "2.125",
-            unitUri: KG_URI,
-            determining: false
           }
         ]
       }
@@ -377,6 +359,11 @@ function bonsaiUnitOptionLabel(unit, offering) {
   return unitName === providerUnit ? unit.label : `${unit.label} (converted to ${offering.referenceUnit})`;
 }
 
+function commonExchangeUnits() {
+  const supported = new Set(["eur", "item(s)", "kg", "kwh", "m2", "m3", "mj", "tkm"]);
+  return (state.ontologyOptions.units || []).filter((unit) => supported.has(String(unit.label || "").toLowerCase()));
+}
+
 function reconcileBonsaiFlowUnit(flow) {
   const offering = selectedBonsaiOffering(flow);
   if (!offering) return;
@@ -507,7 +494,7 @@ function defaultStudy(namespace, referenceFlowUri = "", title = "Untitled PEF st
       referenceFlowUri, conversionFactor: "1", notCoveredAspect: ""
     },
     systemBoundary: {
-      uri: `${namespace}system-boundary`, boundaryTypeUri: `${NS.pefStudy}CradleToGrave`,
+      uri: `${namespace}system-boundary`, boundaryTypeUri: `${NS.pefStudy}CradleToGate`,
       cutOffCriteria: "No cut-off applied in this proof of concept.",
       justification: "Boundary follows the activities included in the product system.", excludesActivity: "", exclusionJustification: ""
     }
@@ -1186,13 +1173,13 @@ function renderDatasetNav() {
 }
 
 function renderActivityNav() {
-  el("activityNav").innerHTML = state.dataset.activities.length ? state.dataset.activities.map((activity) => {
+  el("activityNav").innerHTML = state.dataset.activities.length ? state.dataset.activities.map((activity, index) => {
     const inputs = activity.flows.filter((flow) => flow.direction === "input").length;
     const outputs = activity.flows.filter((flow) => flow.direction === "output").length;
     const issues = activityValidationItems(activity);
     const stage = lifeCycleStageOptions().find((item) => item.uri === activity.lifeCycleStageUri)?.label || "Stage not selected";
     return `<button class="activity-link ${activity.id === state.activeActivityId ? "active" : ""}" type="button" data-select-activity="${activity.id}">
-      <span>${escapeHtml(activity.name || "Untitled activity")}</span>
+      <span class="activity-link-title"><b>${index + 1}</b><strong>${escapeHtml(activity.name || "Untitled activity")}</strong></span>
       <small>${escapeHtml(stage)}</small>
       <small>${inputs} input${inputs === 1 ? "" : "s"} · ${outputs} output${outputs === 1 ? "" : "s"}</small>
       <em class="activity-status ${issues.length ? "issue" : "complete"}">${issues.length ? `${issues.length} issue${issues.length === 1 ? "" : "s"}` : "Complete"}</em>
@@ -1212,7 +1199,7 @@ function renderActivities() {
   }
   const geographies = state.ontologyOptions.geographies || [];
   el("activitiesList").innerHTML = `<article class="activity-editor-card">
-    <div class="item-title"><h3>${escapeHtml(activity.name || "Untitled activity")}</h3><button class="remove" type="button" data-remove-activity="${activity.id}" aria-label="Remove activity">×</button></div>
+    <div class="selected-activity-heading"><div><span>Selected activity</span><h2>${escapeHtml(activity.name || "Untitled activity")}</h2></div><button class="remove text-remove" type="button" data-remove-activity="${activity.id}">Remove activity</button></div>
     <div class="activity-fields">
       <label>Activity name<input type="text" value="${escapeHtml(activity.name)}" data-activity-field="${activity.id}:name" /></label>
       <label>Geography<select data-activity-field="${activity.id}:geographyUri" ${state.ontologyOptions.ready ? "" : "disabled"}>
@@ -1223,7 +1210,7 @@ function renderActivities() {
         <option value="">Select ontology stage</option>
         ${optionObjects(lifeCycleStageOptions(), activity.lifeCycleStageUri)}
       </select></label>
-      <label class="check-row"><input type="checkbox" ${activity.companySpecific ? "checked" : ""} data-activity-field="${activity.id}:companySpecific" />Company specific</label>
+      <label class="check-row"><input type="checkbox" ${activity.companySpecific ? "checked" : ""} data-activity-field="${activity.id}:companySpecific" />Uses company-specific data</label>
     </div>
     <details class="ontology-details"><summary>Ontology details</summary><dl><div><dt>Activity URI</dt><dd>${escapeHtml(activity.uri)}</dd></div><div><dt>ActivityLink URI</dt><dd>${escapeHtml(activity.activityLinkUri)}</dd></div></dl></details>
     ${state.ontologyOptions.error ? `<p class="inline-error">${escapeHtml(state.ontologyOptions.error)}</p>` : ""}
@@ -1313,7 +1300,7 @@ function renderFlows() {
     const providerEntry = selectedBonsaiEntry(flow);
     const providerOffering = selectedBonsaiOffering(flow);
     const quantityReady = sourceReadyForQuantity(flow, activity.id);
-    const compatibleUnits = providerOffering ? compatibleUnitsForBonsai(flow) : units;
+    const compatibleUnits = providerOffering ? compatibleUnitsForBonsai(flow) : flowType.className === "ElementaryFlow" ? units : commonExchangeUnits();
     const unitHint = !quantityReady && acceptsBonsaiProvider(flow) ? "Choose and complete the source first." : providerOffering ? `Set from BONSAI reference unit: ${providerOffering.referenceUnit}.` : "";
     const unitLocked = flow.sourceMode === "bonsai" || flow.sourceMode === "activity" || (flowType.className === "ElementaryFlow" && flowType.preferredUnitUri);
     const unitDisabled = !state.ontologyOptions.ready || !quantityReady || unitLocked;
@@ -1341,7 +1328,7 @@ function renderActivityValidationCenter() {
   if (!node) return;
   const groups = state.dataset.activities.map((activity) => ({ activity, issues: activityValidationItems(activity) })).filter((group) => group.issues.length);
   if (!groups.length) {
-    node.innerHTML = `<div class="validation-ok"><strong>Activities ready</strong><span>Each activity has the required modelling information.</span></div>`;
+    node.innerHTML = "";
     node.classList.remove("has-errors");
     return;
   }
@@ -1371,8 +1358,9 @@ function renderSummary() {
   const structureIssues = structureValidationIssues();
   const systemStatus = structureIssues.length ? "Needs review" : state.dataset.activities.length <= 1 ? "Single activity" : "Connected";
   setOutcomeStatus("outcomeSystemStatus", systemStatus, structureIssues.length);
+  const climateInventoryPresent = climate.direct.length || climate.unresolvedBonsai.length || climate.nonBonsaiInventory.length || climate.uncharacterisedElementary.length;
   el("outcomeClimateValue").textContent = climate.calculated ? formatImpact(climate.directTotal) : "Not calculated";
-  setOutcomeStatus("outcomeClimateStatus", climate.calculated ? "per functional unit" : conciseClimateReason(climate), !climate.calculated);
+  setOutcomeStatus("outcomeClimateStatus", climate.calculated ? "per functional unit" : climateInventoryPresent ? conciseClimateReason(climate) : "No background inputs", !climate.calculated && Boolean(climateInventoryPresent));
   const exportLabel = ready ? (state.dataset.complianceLevel === "EFCompliant" ? "EF-compliant" : "Validated semantic export") : "Draft";
   setOutcomeStatus("outcomeExportStatus", exportLabel, !ready);
   el("jsonExportState").textContent = exportLabel;
@@ -1380,7 +1368,7 @@ function renderSummary() {
   const validationMarkup = (issues, title, detail) => {
     const visibleIssues = issues.slice(0, 6);
     const remainingIssues = issues.slice(6);
-    return issues.length ? `<div><strong>${issues.length} issue${issues.length === 1 ? "" : "s"} to resolve</strong><ul>${visibleIssues.map((issue) => `<li>${escapeHtml(issue)}</li>`).join("")}</ul>${remainingIssues.length ? `<details class="validation-more"><summary>Show ${remainingIssues.length} more issue${remainingIssues.length === 1 ? "" : "s"}</summary><ul>${remainingIssues.map((issue) => `<li>${escapeHtml(issue)}</li>`).join("")}</ul></details>` : ""}</div>` : `<div class="validation-ok"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(detail)}</span></div>`;
+    return issues.length ? `<div><strong>${issues.length} issue${issues.length === 1 ? "" : "s"} to resolve</strong><ul>${visibleIssues.map((issue) => `<li>${escapeHtml(issue)}</li>`).join("")}</ul>${remainingIssues.length ? `<details class="validation-more"><summary>Show ${remainingIssues.length} more issue${remainingIssues.length === 1 ? "" : "s"}</summary><ul>${remainingIssues.map((issue) => `<li>${escapeHtml(issue)}</li>`).join("")}</ul></details>` : ""}</div>` : "";
   };
   const studyIssues = studyValidationIssues();
   const validationSets = [
@@ -1405,7 +1393,7 @@ function conciseClimateReason(report) {
   if (unresolvedProviders) reasons.push(`Resolve ${unresolvedProviders} BONSAI provider${unresolvedProviders === 1 ? "" : "s"}`);
   if (incompatibleUnits) reasons.push(`${incompatibleUnits} incompatible unit${incompatibleUnits === 1 ? "" : "s"}`);
   if (!reasons.length && (report.nonBonsaiInventory.length || report.uncharacterisedElementary.length || report.missingReferenceOutputs.length)) reasons.push("Inventory unresolved");
-  return reasons.join(" · ") || "Inventory unresolved";
+  return reasons.join(" · ") || "No background inputs";
 }
 
 function renderBonsaiReview() {
@@ -1799,34 +1787,31 @@ function addFlow(direction) {
   };
   activity.flows.push(flow);
   createFlowTypeForFlow(flow);
+  state.editingFlowId = id;
   render();
 }
 
 function loadExample() {
-  const ns = "https://w3id.org/cerise-see/examples/pv#";
-  state.productSystem = { uri: `${ns}product-system`, name: "PV panel product system" };
+  const ns = DEFAULT_NAMESPACE;
+  state.productSystem = { uri: `${ns}product-system`, name: "Simple product system" };
   state.flowTypes = [
-    { id: "ft-panel", uri: `${ns}photovoltaic-panel`, label: "photovoltaic panel, single-Si, at plant", className: "ProductFlow", ontologyManaged: false, preferredUnitUri: "", search: "" },
-    { id: "ft-cell", uri: `${ns}photovoltaic-cell`, label: "photovoltaic cell, single-Si, at plant", className: "ProductFlow", ontologyManaged: false, preferredUnitUri: "", search: "" },
-    { id: "ft-aluminium", uri: `${ns}aluminium-alloy`, label: "aluminium alloy, AlMg3, at plant", className: "ProductFlow", ontologyManaged: false, preferredUnitUri: "", search: "" }
+    { id: "ft-finished-product", uri: `${ns}finished-product`, label: "finished product", className: "ProductFlow", ontologyManaged: false, preferredUnitUri: "", search: "" }
   ];
   state.dataset = {
-    uri: `${ns}pv-panel-dataset`, namespace: ns, title: "PV panel ontology example", type: "DPP", complianceLevel: "EFCompliant",
+    uri: `${ns}simple-product-dataset`, namespace: ns, title: "Simple product dataset", type: "DPP", complianceLevel: "EFCompliant",
     activities: [{
-      id: "panel-production", uri: `${ns}panel-production`, name: "Panel production",
-      activityLinkUri: `${ns}activity-link-panel-production`, lifeCycleStageUri: `${NS.productSystem}Manufacturing`,
-      geographyUri: CN_URI, companySpecific: true,
+      id: "act-1", uri: `${ns}act-1`, name: "Product manufacturing",
+      activityLinkUri: `${ns}activity-link-act-1`, lifeCycleStageUri: `${NS.productSystem}Manufacturing`,
+      geographyUri: GLO_URI, companySpecific: true,
       flows: [
-        { id: "panel-output", uri: `${ns}panel-output`, label: "photovoltaic panel", direction: "output", flowTypeUri: `${ns}photovoltaic-panel`, amount: "1", unitUri: KG_URI, determining: true },
-        { id: "cell-input", uri: `${ns}cell-input`, label: "photovoltaic cell", direction: "input", flowTypeUri: `${ns}photovoltaic-cell`, amount: "0.935415", unitUri: KG_URI, determining: false },
-        { id: "aluminium-input", uri: `${ns}aluminium-input`, label: "aluminium frame", direction: "input", flowTypeUri: `${ns}aluminium-alloy`, amount: "2.125", unitUri: KG_URI, determining: false }
+        { id: "flow-1", uri: `${ns}flow-1`, label: "finished product", direction: "output", flowTypeUri: `${ns}finished-product`, amount: "1", unitUri: KG_URI, determining: true }
       ]
     }]
   };
-  state.study = defaultStudy(ns, `${ns}panel-output`, "PV panel PEF study");
-  state.study.functionalUnit.whatProvided = "One photovoltaic panel";
-  state.study.functionalUnit.howWellProvided = "Electricity-generating panel at the specified performance";
-  state.activeActivityId = "panel-production"; state.compatReport = null; state.activeStep = "activities"; state.exportMode = "json";
+  state.study = defaultStudy(ns, `${ns}flow-1`, "Simple product footprint study");
+  state.study.goal.decisionContext = "Internal product improvement";
+  state.study.functionalUnit.whatProvided = "One finished product";
+  state.activeActivityId = "act-1"; state.compatReport = null; state.activeStep = "dataset"; state.exportMode = "json";
   render(); closeDisclosures();
 }
 

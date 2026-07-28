@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>CE-RISE PEFDPP Dataset Builder</title>
-    <link rel="stylesheet" href="styles/styles.css?v=20260727-12" />
+    <link rel="stylesheet" href="styles/styles.css?v=20260728-1" />
   </head>
   <body>
     <header class="topbar">
@@ -21,7 +21,7 @@
         <details class="header-menu">
           <summary class="button quiet" role="button">Examples</summary>
           <div class="menu-popover">
-            <button id="loadExample" type="button">Product example</button>
+            <button id="loadExample" type="button">Simple example</button>
             <button id="loadPvTtl" type="button">PV ontology example</button>
           </div>
         </details>
@@ -33,7 +33,7 @@
       <nav class="steps" aria-label="Dataset creation steps">
         <button id="stepDataset" class="step-button active" type="button" data-step="dataset">
           <span class="step-number">1</span>
-          <span><strong>Dataset</strong><small id="navDatasetTitle">Example product LCI dataset</small></span>
+          <span><strong>Dataset</strong><small id="navDatasetTitle">Simple product dataset</small></span>
         </button>
         <span class="step-line" aria-hidden="true"></span>
         <button id="stepActivities" class="step-button" type="button" data-step="activities">
@@ -65,7 +65,7 @@
         <div class="form-panel dataset-form">
           <label class="wide-field">
             Dataset title
-            <input id="datasetTitle" type="text" value="Example product LCI dataset" />
+            <input id="datasetTitle" type="text" value="Simple product dataset" />
           </label>
           <div class="field-grid">
             <label>
@@ -86,14 +86,14 @@
           </div>
           <label class="wide-field">
             Product system name
-            <input id="productSystemName" type="text" value="Example product system" />
+            <input id="productSystemName" type="text" value="Simple product system" />
           </label>
           <details class="advanced-details">
             <summary>Advanced identifiers</summary>
             <div class="advanced-fields">
           <label class="wide-field">
             Dataset namespace
-            <input id="datasetNamespace" type="url" value="https://w3id.org/cerise-see/datasets/example#" spellcheck="false" />
+            <input id="datasetNamespace" type="url" value="https://w3id.org/cerise-see/datasets/simple-product#" spellcheck="false" />
           </label>
           <label class="wide-field">
             Dataset URI
@@ -101,7 +101,7 @@
           </label>
           <label class="wide-field">
             Product system URI
-            <input id="productSystemUri" type="url" value="https://w3id.org/cerise-see/datasets/example#product-system" spellcheck="false" />
+            <input id="productSystemUri" type="url" value="https://w3id.org/cerise-see/datasets/simple-product#product-system" spellcheck="false" />
           </label>
             </div>
           </details>
@@ -122,9 +122,8 @@
           <div>
             <p class="step-kicker">Step 2 of 4</p>
             <h1>Activities and flows</h1>
-            <p>Each activity describes one process. Add what enters it and what leaves it.</p>
+            <p>Build the product system one process at a time.</p>
           </div>
-          <button id="addActivity" class="button" type="button">+ Add activity</button>
         </div>
 
         <section id="validationCenter" class="validation-center" aria-live="polite"></section>
@@ -132,8 +131,8 @@
         <div class="activity-workspace">
           <aside class="activity-sidebar" aria-label="Activities">
             <div class="sidebar-heading">
-              <strong>Activities</strong>
-              <span id="activityCount">0</span>
+              <div><strong>Modelled activities</strong><span><b id="activityCount">0</b> total</span></div>
+              <button id="addActivity" class="button compact" type="button">+ Add</button>
             </div>
             <div id="activityNav" class="activity-nav"></div>
           </aside>
@@ -141,28 +140,18 @@
           <div class="activity-content">
             <select id="activeActivity" class="visually-hidden" aria-hidden="true"></select>
 
-            <section class="form-panel compact-panel">
-              <div class="section-heading">
-                <div>
-                  <span class="ontology-label">Activity</span>
-                  <h2>Activity details</h2>
-                </div>
-              </div>
+            <section class="form-panel compact-panel activity-workbench">
               <div id="activitiesList"></div>
-            </section>
-
-            <section class="form-panel compact-panel">
-              <div class="section-heading flow-section-heading">
+              <div class="workbench-section-heading flow-section-heading">
                 <div>
-                  <span class="ontology-label">Flow</span>
                   <h2>Inputs and outputs</h2>
+                  <p>Define the exchanges for the selected activity.</p>
                 </div>
                 <div class="flow-actions">
                   <button id="addInputFlow" class="button compact" type="button">+ Input</button>
                   <button id="addOutputFlow" class="button compact" type="button">+ Output</button>
                 </div>
               </div>
-              <div id="processPreview" class="process-preview" aria-label="Live activity process preview"></div>
               <div id="flowsList"></div>
             </section>
           </div>
@@ -345,6 +334,6 @@
       </section>
     </main>
 
-  <script src="src/app.js?v=20260727-12"></script>
+  <script src="src/app.js?v=20260728-1"></script>
   </body>
 </html>

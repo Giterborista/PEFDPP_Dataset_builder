@@ -1788,3 +1788,97 @@ h3 { font-size: 16px; }
 #panelReview .export-both { margin-top: 12px; }
 #panelReview .review-details { padding: 14px 18px; }
 #panelReview .review-details[open] > summary { margin-bottom: 14px; }
+
+/* Stage 2: one activity navigator and one modelling surface. */
+#panelActivities { gap: 18px; }
+#panelActivities .page-heading { margin-bottom: 0; }
+#panelActivities .activity-workspace { grid-template-columns: 286px minmax(0, 1fr); gap: 20px; }
+#panelActivities .activity-sidebar {
+  top: 138px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+}
+#panelActivities .sidebar-heading {
+  align-items: center;
+  gap: 10px;
+  padding: 4px 3px 12px;
+  border-bottom: 1px solid var(--line);
+}
+#panelActivities .sidebar-heading > div { display: grid; gap: 2px; }
+#panelActivities .sidebar-heading strong { color: var(--ink); font-size: 13px; }
+#panelActivities .sidebar-heading span { color: var(--muted); font-size: 11px; }
+#panelActivities .sidebar-heading .button { min-height: 32px; padding: 5px 9px; }
+#panelActivities .activity-nav { gap: 7px; padding-top: 9px; }
+#panelActivities .activity-link {
+  position: relative;
+  gap: 5px;
+  padding: 12px 12px 12px 13px;
+  border-color: transparent;
+  border-radius: 9px;
+}
+#panelActivities .activity-link:hover { border-color: var(--line); background: var(--surface-soft); }
+#panelActivities .activity-link.active { border-color: #bcd8d1; border-left: 3px solid var(--teal); background: #f0f8f6; }
+#panelActivities .activity-link-title { display: grid; grid-template-columns: 24px minmax(0, 1fr); align-items: start; gap: 8px; }
+#panelActivities .activity-link-title b {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid #bfd2cd;
+  border-radius: 99px;
+  color: var(--green);
+  background: #fff;
+  font-size: 11px;
+}
+#panelActivities .activity-link-title strong { min-width: 0; overflow-wrap: anywhere; line-height: 1.3; }
+#panelActivities .activity-link > small,
+#panelActivities .activity-link > em { margin-left: 32px; }
+#panelActivities .activity-link span,
+#panelActivities .activity-link small { overflow: visible; text-overflow: clip; white-space: normal; }
+#panelActivities .activity-status { width: fit-content; margin-top: 2px; }
+
+#panelActivities .activity-workbench { display: grid; gap: 0; padding: 0; overflow: visible; }
+#panelActivities .activity-editor-card { gap: 17px; padding: 22px 24px 20px; }
+#panelActivities .selected-activity-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+#panelActivities .selected-activity-heading > div { display: grid; gap: 4px; min-width: 0; }
+#panelActivities .selected-activity-heading span {
+  color: var(--teal);
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+#panelActivities .selected-activity-heading h2 { overflow-wrap: anywhere; margin: 0; }
+#panelActivities .selected-activity-heading .text-remove { flex: 0 0 auto; padding-top: 3px; white-space: nowrap; }
+#panelActivities .activity-fields { grid-template-columns: minmax(230px, 1.25fr) minmax(230px, 1fr) minmax(190px, .8fr); }
+#panelActivities .activity-fields > .check-row { grid-column: 1 / -1; width: fit-content; margin-top: 1px; }
+#panelActivities .ontology-details { margin-top: 0; }
+
+#panelActivities .workbench-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 24px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-soft);
+}
+#panelActivities .workbench-section-heading > div:first-child { display: grid; gap: 3px; }
+#panelActivities .workbench-section-heading h2 { margin: 0; font-size: 18px; }
+#panelActivities .workbench-section-heading p { margin: 0; color: var(--muted); font-size: 12px; }
+#panelActivities .flow-actions { display: flex; gap: 7px; }
+#panelActivities #flowsList { padding: 20px 24px 24px; }
+#panelActivities .flow-groups { gap: 24px; }
+#panelActivities .flow-group-heading { padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+#panelActivities .empty-editor { min-height: 70px; padding: 18px; border: 1px dashed var(--line-strong); border-radius: 8px; background: #fbfcfd; }
+#panelActivities .step-footer { margin-top: 2px; }
