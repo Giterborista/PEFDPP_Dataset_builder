@@ -4,7 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>CE-RISE PEFDPP Dataset Builder</title>
-    <link rel="stylesheet" href="styles/styles.css?v=20260729-2" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Urbanist:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles/styles.css?v=20260729-5" />
   </head>
   <body>
     <header class="topbar">
@@ -17,7 +20,7 @@
       </div>
       <div class="topbar-actions">
         <input id="ttlUpload" type="file" hidden accept=".ttl,text/turtle,text/plain" />
-        <button id="importTtlButton" class="button quiet" type="button">Import dataset</button>
+        <button id="importTtlButton" class="button quiet" type="button">Import Turtle</button>
         <button id="loadExample" class="button quiet" type="button">Load example</button>
         <button id="resetDataset" class="button new-dataset" type="button">New dataset</button>
       </div>
@@ -27,22 +30,22 @@
       <nav class="steps" aria-label="Dataset creation steps">
         <button id="stepDataset" class="step-button active" type="button" data-step="dataset">
           <span class="step-number">1</span>
-          <span><strong>Dataset</strong><small id="navDatasetTitle">Steel product dataset</small></span>
+          <span><strong>Dataset</strong></span>
         </button>
         <span class="step-line" aria-hidden="true"></span>
         <button id="stepActivities" class="step-button" type="button" data-step="activities">
           <span class="step-number">2</span>
-          <span><strong>Activities</strong><small id="stepActivityMeta">1 activity</small></span>
+          <span><strong>Activities</strong></span>
         </button>
         <span class="step-line" aria-hidden="true"></span>
         <button id="stepStudy" class="step-button" type="button" data-step="study">
           <span class="step-number">3</span>
-          <span><strong>Goal &amp; scope</strong><small id="stepStudyMeta">Draft</small></span>
+          <span><strong>Goal &amp; scope</strong></span>
         </button>
         <span class="step-line" aria-hidden="true"></span>
         <button id="stepReview" class="step-button" type="button" data-step="review">
           <span class="step-number">4</span>
-          <span><strong>Review &amp; export</strong><small id="stepReviewMeta">Draft</small></span>
+          <span><strong>Review &amp; export</strong></span>
         </button>
       </nav>
 
@@ -106,7 +109,6 @@
         </div>
 
         <footer class="step-footer end">
-          <span id="navDatasetMeta" class="footer-note">DPP · EFCompliant</span>
           <button class="button primary" type="button" data-go-step="activities">Continue to activities</button>
         </footer>
       </section>
@@ -132,7 +134,7 @@
           </aside>
 
           <div class="activity-content">
-            <select id="activeActivity" class="visually-hidden" aria-hidden="true"></select>
+            <select id="activeActivity" hidden></select>
 
             <section class="form-panel compact-panel activity-workbench">
               <div id="activitiesList"></div>
@@ -208,7 +210,7 @@
               <label>Unit<select id="fuHowLongUnit"></select></label>
             </div>
             <div id="fuPreview" class="fu-preview"></div>
-            <div class="reference-flow-row"><span>Fulfilled by:</span><select id="fuReferenceFlow"></select></div>
+            <label class="reference-flow-row"><span>Fulfilled by:</span><select id="fuReferenceFlow"></select></label>
             <label class="compact-conversion">Quantity required to fulfil the functional unit<input id="fuConversion" type="number" step="any" /></label>
             <details class="study-optional"><summary>Optional scope note</summary><div class="optional-fields"><label>Aspect not covered<input id="fuNotCovered" type="text" /></label></div></details>
           </section>
@@ -249,7 +251,6 @@
             <h1>Review, calculate and export</h1>
             <p>Inspect how activities are connected, review the climate-change result and export the semantic dataset.</p>
           </div>
-          <span class="status-pill" id="statusPill">Draft</span>
         </div>
 
         <section class="outcome-cards" aria-label="Review outcomes">
@@ -296,7 +297,7 @@
               </div>
               <button id="copyExport" class="button compact quiet" type="button">Copy source</button>
             </div>
-            <textarea id="exportOutput" readonly spellcheck="false"></textarea>
+            <textarea id="exportOutput" aria-label="Generated export source" readonly spellcheck="false"></textarea>
           </details>
         </section>
 
@@ -328,6 +329,6 @@
       </section>
     </main>
 
-    <script src="src/app.js?v=20260729-2"></script>
+    <script src="src/app.js?v=20260729-5"></script>
   </body>
 </html>

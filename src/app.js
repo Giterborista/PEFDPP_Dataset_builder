@@ -212,6 +212,9 @@ function escapeTtl(value) {
     .replaceAll("\\", "\\\\")
     .replaceAll('"', '\\"')
     .replaceAll("\n", "\\n")
+    .replaceAll("\t", "\\t")
+    .replaceAll("\b", "\\b")
+    .replaceAll("\f", "\\f")
     .replaceAll("\r", "");
 }
 
@@ -222,7 +225,9 @@ function slug(value) {
 
 function validUri(value) {
   try {
-    const url = new URL(String(value || ""));
+    const raw = String(value || "").trim();
+    if (!raw || /[\u0000-\u0020<>"{}|\\^`]/.test(raw)) return false;
+    const url = new URL(raw);
     return ["http:", "https:"].includes(url.protocol);
   } catch {
     return false;
@@ -230,7 +235,12 @@ function validUri(value) {
 }
 
 function iri(value) {
-  return `<${String(value || "").replaceAll(">", "%3E")}>`;
+  const raw = String(value || "").trim();
+  try {
+    return `<${encodeURI(raw).replaceAll("<", "%3C").replaceAll(">", "%3E")}>`;
+  } catch {
+    return `<${raw.replaceAll("<", "%3C").replaceAll(">", "%3E").replace(/\s/g, "%20")}>`;
+  }
 }
 
 function localName(value) {
@@ -368,19 +378,20 @@ function preferredBonsaiRegion(flow, entry) {
 }
 
 function preferredBonsaiOffering(entry, region) {
-  const rank = (unit) => {
-    const value = String(unit || "").toLowerCase();
-    if (value === "tonnes") return 0;
-    if (value === "tonnes (service)") return 1;
-    if (value === "tj") return 2;
-    if (value === "items") return 3;
-    if (value === "meuro") return 9;
-    if (value === "ha-weighted") return 20;
-    return 15;
-  };
   return (entry?.offerings || [])
     .filter((item) => item.region === region)
-    .sort((a, b) => rank(a.referenceUnit) - rank(b.referenceUnit))[0] || null;
+    .sort((a, b) => bonsaiReferenceUnitRank(a.referenceUnit) - bonsaiReferenceUnitRank(b.referenceUnit))[0] || null;
+}
+
+function bonsaiReferenceUnitRank(unit) {
+  const value = String(unit || "").toLowerCase();
+  if (value === "tonnes") return 0;
+  if (value === "tonnes (service)") return 1;
+  if (value === "tj") return 2;
+  if (value === "items") return 3;
+  if (value === "meuro") return 9;
+  if (value === "ha-weighted") return 20;
+  return 15;
 }
 
 function unitLabel(uri) {
@@ -409,6 +420,43 @@ function flowLinks() {
       flowFrom: flow.linkedOutputFlowUri,
       toFlow: flowUri(flow)
     })));
+}
+
+function synchronizeInputsLinkedToOutput(output, previousUnitUri = output.unitUri) {
+  if (!output || output.direction !== "output") return;
+  const outputUri = flowUri(output);
+  const remainsProduct = getFlowType(output.flowTypeUri)?.className === "ProductFlow";
+  state.dataset.activities.forEach((activity) => activity.flows
+    .filter((flow) => flow.direction === "input" && flow.sourceMode === "activity" && flow.linkedOutputFlowUri === outputUri)
+    .forEach((input) => {
+      if (!remainsProduct) {
+        input.sourceMode = "";
+        input.sourceActivityId = "";
+        input.linkedOutputFlowUri = "";
+        input.amount = "";
+        input.unitUri = "";
+        return;
+      }
+      input.flowTypeUri = output.flowTypeUri;
+      if (input.unitUri !== output.unitUri) {
+        input.unitUri = output.unitUri;
+        if (previousUnitUri !== output.unitUri) input.amount = "";
+      }
+    }));
+}
+
+function unlinkInputsFromOutput(output) {
+  if (!output || output.direction !== "output") return;
+  const outputUri = flowUri(output);
+  state.dataset.activities.forEach((activity) => activity.flows
+    .filter((flow) => flow.direction === "input" && flow.linkedOutputFlowUri === outputUri)
+    .forEach((input) => {
+      input.sourceMode = "";
+      input.sourceActivityId = "";
+      input.linkedOutputFlowUri = "";
+      input.amount = "";
+      input.unitUri = "";
+    }));
 }
 
 function compatibleUnitsForBonsai(flow) {
@@ -456,6 +504,58 @@ function applyBonsaiOfferingDefaults(flow) {
   reconcileBonsaiFlowUnit(flow);
 }
 
+function reconcileImportedBonsaiSources() {
+  if (!state.bonsai.entries) return;
+  const offeringsByActivity = new Map();
+  state.bonsai.entries.forEach((entry) => entry.offerings.forEach((offering) => {
+    if (!offering.activityUri) return;
+    if (!offeringsByActivity.has(offering.activityUri)) offeringsByActivity.set(offering.activityUri, []);
+    offeringsByActivity.get(offering.activityUri).push({ entry, offering });
+  }));
+  let restored = 0;
+  const unresolved = [];
+  state.dataset.activities.forEach((activity) => activity.flows.forEach((flow) => {
+    if (!flow.providerActivityUri?.startsWith(NS.bonsai) || flow.backgroundProvider) return;
+    const matches = offeringsByActivity.get(flow.providerActivityUri) || [];
+    if (!matches.length) {
+      unresolved.push(flow.providerActivityUri);
+      return;
+    }
+    const compatible = matches.filter(({ offering }) => convertToProviderDemand(1, flow.unitUri, offering.referenceUnit).ok);
+    const pool = compatible.length ? compatible : matches;
+    const selected = [...pool].sort((a, b) => bonsaiReferenceUnitRank(a.offering.referenceUnit) - bonsaiReferenceUnitRank(b.offering.referenceUnit))[0];
+    flow.sourceMode = "bonsai";
+    flow.bonsaiSearch = displayBonsaiLabel(selected.entry.label);
+    flow.backgroundProvider = {
+      code: selected.entry.code,
+      region: selected.offering.region,
+      referenceUnit: selected.offering.referenceUnit
+    };
+    let flowType = getFlowType(flow.flowTypeUri);
+    if (!flowType) {
+      flowType = { id: uid("ft"), uri: flow.flowTypeUri, label: selected.entry.label, className: selected.entry.className, ontologyManaged: true, preferredUnitUri: "", search: "" };
+      state.flowTypes.push(flowType);
+    } else {
+      flowType.label = selected.entry.label;
+      flowType.className = selected.entry.className;
+      flowType.ontologyManaged = true;
+    }
+    restored += 1;
+  }));
+  if (state.compatReport && restored && !state.compatReport.imported.some((item) => item.title === "BONSAI provider links restored")) {
+    state.compatReport.imported.push({
+      title: "BONSAI provider links restored",
+      detail: `${restored} exact provider selection${restored === 1 ? "" : "s"} restored from dcterms:source.`
+    });
+  }
+  if (state.compatReport && unresolved.length && !state.compatReport.warnings.some((item) => item.title === "BONSAI provider links unavailable")) {
+    state.compatReport.warnings.push({
+      title: "BONSAI provider links unavailable",
+      detail: `${unresolved.length} provider URI${unresolved.length === 1 ? " was" : "s were"} not found in the bundled BONSAI catalogue.`
+    });
+  }
+}
+
 function sourceReadyForQuantity(flow, ownerActivityId = "") {
   if (!acceptsBonsaiProvider(flow)) return true;
   if (flow.direction === "output" && getFlowType(flow.flowTypeUri)?.className === "ProductFlow" && !flow.sourceMode) return true;
@@ -492,28 +592,76 @@ function bonsaiContribution(activity, flow) {
   return { activity, flow, entry, offering, conversion, intensity, contributionKg: conversion.demand * intensity * 1000, ok: true };
 }
 
+function productSystemScaling() {
+  const scales = new Map();
+  const issues = [];
+  const reference = determiningProductOutputs().find((item) => item.uri === state.study.functionalUnit.referenceFlowUri);
+  const requiredQuantity = Number(state.study.functionalUnit.conversionFactor);
+  if (!reference) return { scales, issues: ["Select a determining output for the functional unit."], reference: null };
+  const referenceAmount = Number(reference.flow.amount);
+  if (!Number.isFinite(requiredQuantity) || requiredQuantity <= 0) {
+    return { scales, issues: ["Enter a functional-unit quantity greater than zero."], reference };
+  }
+  if (!Number.isFinite(referenceAmount) || referenceAmount <= 0) {
+    return { scales, issues: ["The functional-unit reference output must have an amount greater than zero."], reference };
+  }
+  const visit = (activity, activityScale, path) => {
+    if (path.includes(activity.id)) {
+      issues.push(`Activity connection cycle detected at ${activity.name || "an unnamed activity"}.`);
+      return;
+    }
+    scales.set(activity.id, (scales.get(activity.id) || 0) + activityScale);
+    activity.flows.filter((flow) => flow.direction === "input" && flow.sourceMode === "activity").forEach((input) => {
+      const provider = linkedOutputForInput(input, activity.id);
+      if (!provider) {
+        issues.push(`${activity.name || "Untitled activity"}: select the supplying activity output for ${input.label || "an input"}.`);
+        return;
+      }
+      const inputAmount = Number(input.amount);
+      const outputAmount = Number(provider.flow.amount);
+      if (!Number.isFinite(inputAmount) || inputAmount <= 0 || !Number.isFinite(outputAmount) || outputAmount <= 0) {
+        issues.push(`${input.label || "Linked flow"}: linked input and output amounts must be greater than zero.`);
+        return;
+      }
+      if (input.unitUri !== provider.flow.unitUri) {
+        issues.push(`${input.label || "Linked flow"}: linked input and output units must match.`);
+        return;
+      }
+      visit(provider.activity, activityScale * inputAmount / outputAmount, [...path, activity.id]);
+    });
+  };
+  visit(reference.activity, requiredQuantity / referenceAmount, []);
+  state.dataset.activities.forEach((activity) => {
+    if (!scales.has(activity.id)) issues.push(`${activity.name || "Untitled activity"}: activity does not contribute to the selected functional-unit output.`);
+  });
+  return { scales, issues: [...new Set(issues)], reference };
+}
+
 function climateReport() {
   const allFlows = state.dataset.activities.flatMap((activity) => activity.flows.map((flow) => ({ activity, flow })));
   const bonsai = allFlows.filter(({ flow }) => flow.sourceMode === "bonsai" && bonsaiAffectsClimate(flow)).map(({ activity, flow }) => bonsaiContribution(activity, flow));
   const unresolvedBonsai = bonsai.filter((row) => !row.ok);
-  const direct = bonsai.filter((row) => row.ok);
+  const scaling = productSystemScaling();
+  const direct = bonsai.filter((row) => row.ok).map((row) => {
+    const activityScale = scaling.scales.get(row.activity.id) || 0;
+    return { ...row, activityScale, scaledContributionKg: row.contributionKg * activityScale };
+  });
   const nonBonsaiInventory = allFlows.filter(({ flow }) => {
     const className = getFlowType(flow.flowTypeUri)?.className;
     return (flow.direction === "input" && className === "ProductFlow") || (flow.direction === "output" && className === "WasteFlow");
   }).filter(({ flow }) => !["bonsai", "activity"].includes(flow.sourceMode));
   const uncharacterisedElementary = allFlows.filter(({ flow }) => getFlowType(flow.flowTypeUri)?.className === "ElementaryFlow");
   const missingReferenceOutputs = state.dataset.activities.filter((activity) => !activity.flows.some((flow) => flow.direction === "output" && flow.determining));
-  const fuFactor = Number(state.study.functionalUnit.conversionFactor);
-  const scale = Number.isFinite(fuFactor) && fuFactor > 0 ? fuFactor : 1;
-  const directTotal = direct.reduce((sum, row) => sum + row.contributionKg, 0) * scale;
-  const calculated = direct.length > 0 && !unresolvedBonsai.length && !nonBonsaiInventory.length && !uncharacterisedElementary.length && !missingReferenceOutputs.length;
+  const directTotal = direct.reduce((sum, row) => sum + row.scaledContributionKg, 0);
+  const calculated = direct.length > 0 && !unresolvedBonsai.length && !nonBonsaiInventory.length && !uncharacterisedElementary.length && !missingReferenceOutputs.length && !scaling.issues.length;
   const reasons = [
     ...unresolvedBonsai.map((row) => `${row.flow.label}: ${row.reason}`),
     ...nonBonsaiInventory.map(({ flow }) => `${flow.label}: not directly BONSAI-resolved`),
     ...uncharacterisedElementary.map(({ flow }) => `${flow.label}: elementary-flow characterisation is not implemented in this MVP`),
-    ...missingReferenceOutputs.map((activity) => `${activity.name || "Untitled activity"}: reference output missing`)
+    ...missingReferenceOutputs.map((activity) => `${activity.name || "Untitled activity"}: reference output missing`),
+    ...scaling.issues
   ];
-  return { direct, unresolvedBonsai, nonBonsaiInventory, uncharacterisedElementary, missingReferenceOutputs, scale, directTotal, calculated, reasons };
+  return { direct, unresolvedBonsai, nonBonsaiInventory, uncharacterisedElementary, missingReferenceOutputs, activityScales: scaling.scales, scalingIssues: scaling.issues, directTotal, calculated, reasons };
 }
 
 function bonsaiFlowType(flow, entry) {
@@ -598,9 +746,11 @@ function activityValidationItems(activity) {
   if (!lifeCycleStageOptions().some((stage) => stage.uri === activity.lifeCycleStageUri)) add("Select a lifecycle stage.", "", "lifeCycleStageUri");
   const references = activity.flows.filter((flow) => flow.direction === "output" && flow.determining);
   if (references.length !== 1) add("Select a reference output.", "", "determining");
+  else if (getFlowType(references[0].flowTypeUri)?.className !== "ProductFlow") add("Use a Product Flow as the reference output.", references[0].id, "flowTypeUri");
   activity.flows.forEach((flow) => {
     if (!flow.label.trim()) add("Enter a flow name.", flow.id, "label");
-    if (!String(flow.amount).trim()) add("Enter an amount.", flow.id, "amount");
+    const amount = Number(flow.amount);
+    if (!String(flow.amount).trim() || !Number.isFinite(amount) || amount <= 0) add("Enter an amount greater than zero.", flow.id, "amount");
     if (!flow.unitUri) add("Select a unit.", flow.id, "unitUri");
     const flowType = getFlowType(flow.flowTypeUri);
     if (flowType?.className === "ElementaryFlow") {
@@ -610,8 +760,10 @@ function activityValidationItems(activity) {
     if (flow.direction === "input" && flowType?.className === "ProductFlow") {
       if (flow.sourceMode === "bonsai") {
         if (!selectedBonsaiOffering(flow)) add("Select a BONSAI dataset and region.", flow.id, "backgroundProvider");
-      } else if (flow.sourceMode === "activity" && !linkedOutputForInput(flow, activity.id)) {
-        add("Select a connected output.", flow.id, "sourceMode");
+      } else if (flow.sourceMode === "activity") {
+        const provider = linkedOutputForInput(flow, activity.id);
+        if (!provider) add("Select a connected output.", flow.id, "sourceMode");
+        else if (provider.flow.unitUri !== flow.unitUri) add("Use the same unit as the connected output.", flow.id, "unitUri");
       } else if (!flow.sourceMode) {
         add("Resolve the source of this input.", flow.id, "sourceMode");
       }
@@ -661,10 +813,10 @@ function studyValidationIssues() {
   if (!validUri(functionalUnit.uri) || !functionalUnit.whatProvided.trim() || !functionalUnit.howWellProvided.trim()) issues.push("Complete what and how well the FunctionalUnit provides.");
   const quantityUnits = new Set(state.studyOptions.quantityUnits.map((item) => item.uri));
   const durationUnits = new Set(state.studyOptions.durationUnits.map((item) => item.uri));
-  if (!Number.isFinite(Number(functionalUnit.howMuchValue)) || !quantityUnits.has(functionalUnit.howMuchUnitUri)) issues.push("Complete the FunctionalUnit quantity with a recognised ontology unit.");
-  if (!Number.isFinite(Number(functionalUnit.howLongValue)) || !durationUnits.has(functionalUnit.howLongUnitUri)) issues.push("Complete the FunctionalUnit duration with a recognised OM unit.");
+  if (!Number.isFinite(Number(functionalUnit.howMuchValue)) || Number(functionalUnit.howMuchValue) <= 0 || !quantityUnits.has(functionalUnit.howMuchUnitUri)) issues.push("Enter a functional-unit quantity greater than zero with a recognised ontology unit.");
+  if (!Number.isFinite(Number(functionalUnit.howLongValue)) || Number(functionalUnit.howLongValue) <= 0 || !durationUnits.has(functionalUnit.howLongUnitUri)) issues.push("Enter a functional-unit duration greater than zero with a recognised OM unit.");
   if (!determiningProductOutputs().some((item) => item.uri === functionalUnit.referenceFlowUri)) issues.push("Select one determining ProductFlow output as the FunctionalUnit reference flow.");
-  if (!String(functionalUnit.conversionFactor).trim() || !Number.isFinite(Number(functionalUnit.conversionFactor))) issues.push("Complete the reference-flow to FunctionalUnit conversion factor.");
+  if (!String(functionalUnit.conversionFactor).trim() || !Number.isFinite(Number(functionalUnit.conversionFactor)) || Number(functionalUnit.conversionFactor) <= 0) issues.push("Enter a quantity greater than zero to fulfil the functional unit.");
   if (!validUri(systemBoundary.uri) || !state.studyOptions.boundaryTypes.some((item) => item.uri === systemBoundary.boundaryTypeUri)) issues.push("Complete the SystemBoundary URI and ontology boundary type.");
   if (!systemBoundary.cutOffCriteria.trim() || !systemBoundary.justification.trim()) issues.push("Complete the system-boundary cut-off criteria and justification.");
   const categoryUris = new Set(state.studyOptions.impactCategories.map((item) => item.uri));
@@ -678,7 +830,7 @@ function studyValidationIssues() {
 }
 
 function validationIssues() {
-  return [...structureValidationIssues(), ...studyValidationIssues()];
+  return [...new Set([...structureValidationIssues(), ...studyValidationIssues(), ...productSystemScaling().issues])];
 }
 
 function graphUris() {
@@ -762,12 +914,19 @@ async function loadBonsaiIndex() {
     const response = await fetch("data/bonsai-catalogue-index.json");
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
-    state.bonsai.metadata = data.metadata;
     state.bonsai.entries = data.entries.map(([code, label, className, offerings]) => ({
       code, label, className,
-      offerings: offerings.map(([region, referenceUnit, gwp100, emissionUnit, activityUri]) => ({ region, referenceUnit, gwp100, emissionUnit, activityUri }))
-    }));
+      offerings: offerings
+        .map(([region, referenceUnit, gwp100, emissionUnit, activityUri]) => ({ region, referenceUnit, gwp100, emissionUnit, activityUri }))
+        .filter((offering) => offering.activityUri)
+    })).filter((entry) => entry.offerings.length);
+    state.bonsai.metadata = {
+      ...data.metadata,
+      selectableProviderCodes: state.bonsai.entries.length,
+      selectableRecords: state.bonsai.entries.reduce((count, entry) => count + entry.offerings.length, 0)
+    };
     state.bonsai.error = "";
+    reconcileImportedBonsaiSources();
   } catch (error) {
     state.bonsai.error = `BONSAI catalogue could not be loaded: ${error.message}`;
   } finally {
@@ -986,24 +1145,28 @@ function parseTtlSubset(text) {
       const measure = parseMeasure(flowNode.body, prefixes);
       if (flowTypeUri && !registry.has(flowTypeUri)) {
         const elementary = flowTypeUri.startsWith(NS.elementary);
+        const bonsai = flowTypeUri.startsWith(`${NS.bonsai}FT_`);
         registry.set(flowTypeUri, {
           id: uid("ft"), uri: flowTypeUri, label: localName(flowTypeUri),
           className: elementary ? "ElementaryFlow" : "ProductFlow",
-          ontologyManaged: elementary, preferredUnitUri: elementary ? measure.unitUri : "", search: ""
+          ontologyManaged: elementary || bonsai, preferredUnitUri: elementary ? measure.unitUri : "", search: ""
         });
-        if (!elementary) report.warnings.push({
+        if (!elementary && !bonsai) report.warnings.push({
           title: `Undeclared FlowType preserved: ${flowTypeUri}`,
           detail: "Its exact URI is preserved. ProductFlow is shown as the editable class because no class statement was present in this file."
         });
       }
+      const providerActivityUri = expandToken(predicateValue(flowNode.body, p(NS.dcterms, "source")), prefixes);
+      const linkedOutputFlowUri = flowLinksByInput.get(flowNode.subject) || "";
       return {
         id: localName(flowNode.subject), uri: flowNode.subject,
         label: literalValue(predicateValue(flowNode.body, p(NS.flow, "contextualLabel"))) || registry.get(flowTypeUri)?.label || localName(flowNode.subject),
         direction: predicateValue(flowNode.body, p(NS.activity, "outputOf")) ? "output" : "input",
         flowTypeUri, amount: measure.amount || "1", unitUri: measure.unitUri,
         determining: Boolean(determiningUri && flowNode.subject === determiningUri),
-        sourceMode: flowLinksByInput.has(flowNode.subject) ? "activity" : "",
-        linkedOutputFlowUri: flowLinksByInput.get(flowNode.subject) || ""
+        sourceMode: linkedOutputFlowUri ? "activity" : providerActivityUri.startsWith(NS.bonsai) ? "bonsai" : providerActivityUri ? "external" : "",
+        linkedOutputFlowUri,
+        providerActivityUri
       };
     });
     return {
@@ -1184,7 +1347,9 @@ function renderStudy() {
     : stages.size ? `The model currently represents: ${[...stages].join(" and ")}.` : "No activity lifecycle stages have been selected yet.";
   const statuses = {
     studyPurpose: Boolean(study.title.trim() && goal.intendedApplication.trim() && goal.commissionerName.trim() && goal.verifierName.trim()),
-    functionalUnit: Boolean(functionalUnit.whatProvided.trim() && functionalUnit.howWellProvided.trim() && functionalUnit.howMuchValue && functionalUnit.howLongValue && reference),
+    functionalUnit: Boolean(functionalUnit.whatProvided.trim() && functionalUnit.howWellProvided.trim()
+      && Number(functionalUnit.howMuchValue) > 0 && Number(functionalUnit.howLongValue) > 0
+      && Number(functionalUnit.conversionFactor) > 0 && reference),
     systemBoundary: Boolean(systemBoundary.boundaryTypeUri && systemBoundary.cutOffCriteria.trim() && systemBoundary.justification.trim() && boundaryCoverageComplete)
   };
   Object.entries(statuses).forEach(([id, complete]) => { const node = el(`${id}Status`); if (node) { node.textContent = complete ? "Complete" : "Needs input"; node.className = complete ? "complete" : "pending"; } });
@@ -1238,8 +1403,6 @@ function datasetIsReady() {
 }
 
 function renderDatasetNav() {
-  el("navDatasetTitle").textContent = state.dataset.title || "Untitled LCI dataset";
-  el("navDatasetMeta").textContent = `${state.dataset.type} · ${state.dataset.complianceLevel}`;
   const datasetUriPreview = el("datasetUriPreview");
   if (datasetUriPreview) datasetUriPreview.textContent = graphUris().datasetUri;
 }
@@ -1248,16 +1411,12 @@ function renderActivityNav() {
   el("activityNav").innerHTML = state.dataset.activities.length ? state.dataset.activities.map((activity, index) => {
     const inputs = activity.flows.filter((flow) => flow.direction === "input").length;
     const outputs = activity.flows.filter((flow) => flow.direction === "output").length;
-    const incoming = activity.flows.filter((flow) => flow.direction === "input" && flow.sourceMode === "activity" && linkedOutputForInput(flow, activity.id)).length;
-    const outputUris = new Set(activity.flows.filter((flow) => flow.direction === "output").map((flow) => flowUri(flow)));
-    const outgoing = state.dataset.activities.reduce((count, candidate) => count + candidate.flows.filter((flow) => flow.direction === "input" && outputUris.has(flow.linkedOutputFlowUri)).length, 0);
     const issues = activityValidationItems(activity);
     const stage = lifeCycleStageOptions().find((item) => item.uri === activity.lifeCycleStageUri)?.label || "Stage not selected";
     return `<button class="activity-link ${activity.id === state.activeActivityId ? "active" : ""}" type="button" data-select-activity="${activity.id}">
       <span class="activity-link-title"><b>${index + 1}</b><strong>${escapeHtml(activity.name || "Untitled activity")}</strong></span>
       <small>${escapeHtml(stage)}</small>
       <small>${inputs} input${inputs === 1 ? "" : "s"} · ${outputs} output${outputs === 1 ? "" : "s"}</small>
-      ${incoming || outgoing ? `<small class="activity-linkage">${incoming ? `${incoming} incoming` : ""}${incoming && outgoing ? " · " : ""}${outgoing ? `${outgoing} outgoing` : ""} connection${incoming + outgoing === 1 ? "" : "s"}</small>` : ""}
       <em class="activity-status ${issues.length ? "issue" : "complete"}">${issues.length ? `${issues.length} issue${issues.length === 1 ? "" : "s"}` : "Complete"}</em>
     </button>`;
   }).join("") : `<div class="empty-editor"><strong>No activities yet</strong><span>Add an activity to start building the dataset.</span></div>`;
@@ -1351,14 +1510,14 @@ function renderFlows() {
     const unresolvedLabel = flow.direction === "output" && flowType.className === "ProductFlow" ? "Produced by this activity" : "Not resolved yet";
     const bonsaiLabel = flow.direction === "output" && flowType.className === "ProductFlow" ? "Link to a BONSAI dataset" : "BONSAI background dataset";
     return `<section class="flow-source-picker"><h4>${sourceHeading}</h4>
-      <select data-product-source="${flow.id}"><option value="" ${sourceValue ? "" : "selected"}>${unresolvedLabel}</option><option value="bonsai" ${sourceValue === "bonsai" ? "selected" : ""}>${bonsaiLabel}</option>${flow.direction === "input" && flowType.className === "ProductFlow" ? `<option value="activity" ${sourceValue === "activity" ? "selected" : ""}>Produced by another activity in this product system</option>` : ""}<option value="external" ${sourceValue === "external" ? "selected" : ""}>External product or DPP</option></select>
+      <select aria-label="${sourceHeading}" data-product-source="${flow.id}"><option value="" ${sourceValue ? "" : "selected"}>${unresolvedLabel}</option><option value="bonsai" ${sourceValue === "bonsai" ? "selected" : ""}>${bonsaiLabel}</option>${flow.direction === "input" && flowType.className === "ProductFlow" ? `<option value="activity" ${sourceValue === "activity" ? "selected" : ""}>Produced by another activity in this product system</option>` : ""}<option value="external" ${sourceValue === "external" ? "selected" : ""}>External product or DPP</option></select>
       ${flow.direction === "output" && flowType.className === "ProductFlow" && !flow.sourceMode ? `<p class="method-note">This product is supplied by the current activity. A BONSAI link is optional.</p>` : ""}
       ${flow.sourceMode === "activity" ? `<p class="method-note">This input is supplied by an output from another activity.</p><label class="connected-output-selector">Connected output<select data-source-output="${flow.id}"><option value="">Select an activity output</option>${outputGroups.map(({ providerActivity, outputs }) => `<optgroup label="${escapeHtml(providerActivity.name || "Untitled activity")}">${outputs.map(({ flow: providerFlow }) => `<option value="${escapeHtml(flowUri(providerFlow))}" ${flowUri(providerFlow) === flow.linkedOutputFlowUri ? "selected" : ""}>${escapeHtml(providerFlow.label || "Unnamed output")} · ${escapeHtml(providerFlow.amount)} ${escapeHtml(unitLabel(providerFlow.unitUri))}</option>`).join("")}</optgroup>`).join("")}</select></label>${availableOutputs.length ? "" : `<p class="inline-error">Add a product output to another activity before creating this connection.</p>`}${linkedOutput ? `<div class="internal-link-preview"><div><small>Supplier</small><strong>${escapeHtml(linkedOutput.activity.name)}</strong></div><div class="internal-link-edge"><span>${escapeHtml(linkedOutput.flow.label)} · ${escapeHtml(linkedOutput.flow.amount)} ${escapeHtml(unitLabel(linkedOutput.flow.unitUri))}</span><b>→</b><em>Internal connection</em><b>→</b><span>${escapeHtml(flow.label || "This input")}</span></div><div><small>Receiver</small><strong>${escapeHtml(activity.name)}</strong></div></div>` : ""}<details class="ontology-details compact-ontology"><summary>Ontology details</summary><p>ProductSystem → hasFlowLink → FlowLink. The supplying output and receiving input remain separate Flow instances.</p></details>` : ""}
       ${flow.sourceMode === "external" ? `<div class="source-link-card"><strong>External product or DPP</strong><span>Reference-only connection. Preserve the selected external FlowType URI when importing a dataset.</span></div>` : ""}
       ${flow.sourceMode === "bonsai" ? `<div class="bonsai-controls single-combobox"><label>Select BONSAI background dataset<input role="combobox" aria-expanded="${state.bonsai.openFlowId === flow.id}" type="search" value="${escapeHtml(flow.bonsaiSearch || displayBonsaiLabel(providerEntry?.label) || "")}" placeholder="Search BONSAI process or code" data-bonsai-search-flow="${flow.id}" autocomplete="off" /></label>
       ${state.bonsai.openFlowId === flow.id ? `<div class="ef-results ef-dropdown" role="listbox">${state.bonsai.loading ? `<span class="picker-note">Loading BONSAI catalogue…</span>` : state.bonsai.error ? `<span class="inline-error">${escapeHtml(state.bonsai.error)}</span>` : providerChoices.map((entry) => `<button type="button" role="option" data-select-bonsai-flow="${flow.id}" data-bonsai-code="${escapeHtml(entry.code)}"><strong>${escapeHtml(displayBonsaiLabel(entry.label))}</strong><span>${escapeHtml(entry.code)} · ${entry.offerings.length} record${entry.offerings.length === 1 ? "" : "s"}</span></button>`).join("") || `<span class="picker-note">${bonsaiQueryReady ? "No matching BONSAI datasets." : "Type at least 2 characters to search."}</span>`}</div>` : ""}
       ${providerEntry ? `<div class="bonsai-selection"><span><strong>${escapeHtml(displayBonsaiLabel(providerEntry.label))}</strong><small>${escapeHtml(providerEntry.code)}</small></span><label>Region<select data-bonsai-region="${flow.id}"><option value="">Select region</option>${providerRegions.map((region) => `<option value="${escapeHtml(region)}" ${region === flow.backgroundProvider?.region ? "selected" : ""}>${escapeHtml(region)}</option>`).join("")}</select></label><span class="locked-reference-unit"><small>Reference unit</small><strong>${escapeHtml(providerOffering?.referenceUnit || "Select region")}</strong></span></div>` : ""}
-      ${providerOffering && contribution ? `<details class="provider-details"><summary>Environmental data available</summary><dl><div><dt>Source GWP100 intensity</dt><dd>${Number(providerOffering.gwp100).toLocaleString(undefined, { maximumSignificantDigits: 6 })} ${escapeHtml(providerOffering.emissionUnit)} / ${escapeHtml(providerOffering.referenceUnit)}</dd></div>${contribution.ok ? `<div><dt>Converted quantity</dt><dd>${Number(contribution.conversion.demand).toLocaleString(undefined, { maximumSignificantDigits: 6 })} ${escapeHtml(providerOffering.referenceUnit)}</dd></div><div><dt>Calculated contribution</dt><dd>${formatImpact(contribution.contributionKg)}</dd></div>` : `<div class="provider-error"><dt>Calculation</dt><dd>${escapeHtml(contribution.reason)}</dd></div>`}</dl></details>` : ""}</div>` : ""}
+      ${providerOffering && contribution ? `<details class="provider-details"><summary>Environmental data available</summary><dl><div><dt>Source GWP100 intensity</dt><dd>${Number(providerOffering.gwp100).toLocaleString(undefined, { maximumSignificantDigits: 6 })} ${escapeHtml(providerOffering.emissionUnit)} / ${escapeHtml(providerOffering.referenceUnit)}</dd></div>${contribution.ok ? `<div><dt>Converted quantity</dt><dd>${Number(contribution.conversion.demand).toLocaleString(undefined, { maximumSignificantDigits: 6 })} ${escapeHtml(providerOffering.referenceUnit)}</dd></div><div><dt>Contribution per activity unit</dt><dd>${formatImpact(contribution.contributionKg)}</dd></div>` : `<div class="provider-error"><dt>Calculation</dt><dd>${escapeHtml(contribution.reason)}</dd></div>`}</dl></details>` : ""}</div>` : ""}
     </section>`;
   };
   const rows = (flows, heading) => `<section class="flow-group"><div class="flow-group-heading"><h3>${heading}</h3><span>${flows.length} ${flows.length === 1 ? "flow" : "flows"}</span></div>${flows.length ? flows.map((flow) => {
@@ -1389,7 +1548,7 @@ function renderFlows() {
     const identityFields = `<div class="flow-definition flow-identity"><label>Flow name<input type="text" value="${escapeHtml(flow.label)}" data-flow-field="${flow.id}:label" /></label><label>Flow type<select data-flow-class="${flow.id}">${FLOW_CLASSES.map((name) => `<option value="${name}" ${name === flowType.className ? "selected" : ""}>${readableFlowType(name)}</option>`).join("")}</select></label></div>`;
     const quantityFields = `<div class="flow-quantity"><label>Amount<input type="number" step="any" value="${escapeHtml(flow.amount)}" data-flow-field="${flow.id}:amount" ${quantityReady ? "" : "disabled"} /></label><label>Unit<select data-flow-field="${flow.id}:unitUri" ${unitDisabled ? "disabled" : ""}><option value="">Select unit</option>${unitOptions}</select>${unitHint ? `<small class="field-help">${escapeHtml(unitHint)}</small>` : ""}</label></div>`;
     const elementaryPicker = flowType.className === "ElementaryFlow" ? `<section class="elementary-picker flow-elementary-picker single-combobox"><label>EF 3.1 elementary flow<input role="combobox" aria-expanded="${state.elementary.openFlowId === flow.id}" type="search" value="${escapeHtml(flowType.search || (flowType.ontologyManaged ? flowType.label : ""))}" placeholder="Search and select an elementary flow" data-ef-search-flow="${flow.id}" autocomplete="off" /></label>${state.elementary.openFlowId === flow.id ? `<div class="ef-results ef-dropdown" role="listbox">${state.elementary.loading ? `<span class="picker-note">Loading elementary flows…</span>` : elementaryOptions.map((entry) => `<button type="button" role="option" data-select-ef-flow="${flow.id}" data-ef-uri="${escapeHtml(entry.uri)}"><strong>${escapeHtml(entry.label)}</strong><span>${escapeHtml(entry.classificationLabel || "Unclassified")} · ${escapeHtml(entry.casNumber || entry.identifier)}</span></button>`).join("") || `<span class="picker-note">No matching elementary flows.</span>`}</div>` : ""}<span class="picker-note">${flowType.ontologyManaged ? "Selected from the EF 3.1 ontology." : "Start typing to open the ontology list."}</span></section>` : "";
-    return `<article class="flow-card ${expanded ? "expanded" : ""}"><button class="flow-summary" type="button" data-edit-flow="${flow.id}" aria-expanded="${expanded}"><span class="direction-label ${flow.direction}">${flow.direction}</span><span class="flow-summary-main"><strong>${escapeHtml(flow.label || "Unnamed flow")}</strong><small>${escapeHtml(flow.amount)} ${escapeHtml(unitLabel(flow.unitUri))} · ${escapeHtml(readableFlowType(flowType.className))}</small></span><span class="flow-source-status">${escapeHtml(sourceState)}</span><span aria-hidden="true">${expanded ? "−" : "+"}</span></button>${expanded ? `<div class="flow-editor"><button class="remove flow-remove-top" type="button" data-remove-flow="${flow.id}">Remove</button>${identityFields}${acceptsBonsaiProvider(flow) ? sourceEditor(flow, flowType) : ""}${quantityFields}${flow.direction === "output" ? `<label class="reference-radio"><input type="radio" name="reference-${activity.id}" ${flow.determining ? "checked" : ""} data-flow-field="${flow.id}:determining" /><span>Reference output</span></label>` : ""}${elementaryPicker}</div>` : ""}</article>`;
+    return `<article class="flow-card ${expanded ? "expanded" : ""}"><button class="flow-summary" type="button" data-edit-flow="${flow.id}" aria-expanded="${expanded}"><span class="direction-label ${flow.direction}">${flow.direction}</span><span class="flow-summary-main"><strong>${escapeHtml(flow.label || "Unnamed flow")}</strong><small>${escapeHtml(flow.amount)} ${escapeHtml(unitLabel(flow.unitUri))} · ${escapeHtml(readableFlowType(flowType.className))}</small></span><span class="flow-source-status">${escapeHtml(sourceState)}</span><span aria-hidden="true">${expanded ? "−" : "+"}</span></button>${expanded ? `<div class="flow-editor"><button class="remove flow-remove-top" type="button" data-remove-flow="${flow.id}">Remove</button>${identityFields}${acceptsBonsaiProvider(flow) ? sourceEditor(flow, flowType) : ""}${quantityFields}${flow.direction === "output" && flowType.className === "ProductFlow" ? `<label class="reference-radio"><input type="radio" name="reference-${activity.id}" ${flow.determining ? "checked" : ""} data-flow-field="${flow.id}:determining" /><span>Reference output</span></label>` : ""}${elementaryPicker}</div>` : ""}</article>`;
   }).join("") : `<div class="empty-editor"><strong>No ${heading.toLowerCase()}</strong><span>Add a ${heading === "Inputs" ? "material, product, energy or elementary flow" : "product or waste output"}.</span></div>`}</section>`;
   el("flowsList").innerHTML = `<div class="flow-groups">${rows(activity.flows.filter((flow) => flow.direction === "input"), "Inputs")}${rows(activity.flows.filter((flow) => flow.direction === "output"), "Outputs")}</div>`;
   renderProcessPreview(activity);
@@ -1422,13 +1581,8 @@ function renderSummary() {
   el("activityCount").textContent = activities;
   const contextActivities = el("datasetContextActivities");
   if (contextActivities) contextActivities.textContent = activities;
-  el("stepActivityMeta").textContent = `${activities} ${activities === 1 ? "activity" : "activities"}`;
-  el("stepStudyMeta").textContent = studyValidationIssues().length ? "Draft" : "Complete";
   const ready = datasetIsReady();
   const climate = climateReport();
-  el("statusPill").textContent = ready ? "Ready to export" : "Needs attention";
-  el("statusPill").classList.toggle("warning", !ready);
-  el("stepReviewMeta").textContent = ready ? "Ready" : "Draft";
   const setOutcomeStatus = (id, text, warning) => {
     const status = el(id);
     status.textContent = text;
@@ -1442,7 +1596,7 @@ function renderSummary() {
   const climateInventoryPresent = climate.direct.length || climate.unresolvedBonsai.length || climate.nonBonsaiInventory.length || climate.uncharacterisedElementary.length;
   el("outcomeClimateValue").textContent = climate.calculated ? formatImpact(climate.directTotal) : "Not calculated";
   setOutcomeStatus("outcomeClimateStatus", climate.calculated ? "per functional unit" : climateInventoryPresent ? conciseClimateReason(climate) : "No background inputs", !climate.calculated && Boolean(climateInventoryPresent));
-  const exportLabel = ready ? (state.dataset.complianceLevel === "EFCompliant" ? "EF-compliant" : "Validated semantic export") : "Draft";
+  const exportLabel = ready ? (state.dataset.complianceLevel === "EFCompliant" ? "EF profile selected" : "Ontology export ready") : "Draft";
   setOutcomeStatus("outcomeExportStatus", exportLabel, !ready);
   el("jsonExportState").textContent = exportLabel;
   el("ttlExportState").textContent = exportLabel;
@@ -1473,6 +1627,8 @@ function conciseClimateReason(report) {
   const reasons = [];
   if (unresolvedProviders) reasons.push(`Resolve ${unresolvedProviders} BONSAI provider${unresolvedProviders === 1 ? "" : "s"}`);
   if (incompatibleUnits) reasons.push(`${incompatibleUnits} incompatible unit${incompatibleUnits === 1 ? "" : "s"}`);
+  if (report.scalingIssues.some((issue) => /cycle/i.test(issue))) reasons.push("Resolve the activity connection cycle");
+  else if (report.scalingIssues.length) reasons.push("Resolve activity quantities and connections");
   if (!reasons.length && (report.nonBonsaiInventory.length || report.uncharacterisedElementary.length || report.missingReferenceOutputs.length)) reasons.push("Inventory unresolved");
   return reasons.join(" · ") || "No background inputs";
 }
@@ -1480,6 +1636,8 @@ function conciseClimateReason(report) {
 function renderBonsaiReview() {
   const node = el("reviewBonsaiLookup");
   if (!node) return;
+  const climate = climateReport();
+  const directByFlow = new Map(climate.direct.map((row) => [row.flow.id, row]));
   const rows = state.dataset.activities.flatMap((activity) => activity.flows.map((flow) => ({ activity, flow })))
     .filter(({ flow }) => flow.sourceMode === "bonsai")
     .map(({ activity, flow }) => ({ activity, flow, entry: selectedBonsaiEntry(flow), offering: selectedBonsaiOffering(flow) }));
@@ -1488,15 +1646,16 @@ function renderBonsaiReview() {
     node.innerHTML = `<div class="bonsai-review-empty"><strong>No BONSAI datasets selected</strong><span>BONSAI can supply product inputs, describe product outputs, or model waste treatment.</span></div>`;
     return;
   }
-  node.innerHTML = `<div class="bonsai-review-note">${source ? `${source.providerCodes.toLocaleString()} BONSAI provider codes · ${source.gwp100Records.toLocaleString()} GWP100 catalogue records · ${escapeHtml(source.version)}` : "BONSAI catalogue loading"}. Source intensities are provenance, not product-system results.</div>
+  node.innerHTML = `<div class="bonsai-review-note">${source ? `${source.selectableProviderCodes.toLocaleString()} ontology-backed BONSAI providers · ${source.selectableRecords.toLocaleString()} GWP100 records · ${escapeHtml(source.version)}` : "BONSAI catalogue loading"}. Source intensities are provenance, not product-system results.</div>
     <div class="bonsai-review-table"><div class="bonsai-review-head"><span>Foreground flow</span><span>Selected BONSAI provider</span><span>Source intensity</span><span>Direct contribution</span></div>
       ${rows.map(({ activity, flow, entry, offering }) => {
         const contributes = bonsaiAffectsClimate(flow);
         const contribution = contributes ? bonsaiContribution(activity, flow) : null;
+        const scaled = directByFlow.get(flow.id);
         const resultCell = !contributes
           ? `<strong>Output mapping only</strong><small>Not added as an environmental burden</small>`
           : contribution.ok
-            ? `<strong>${formatImpact(contribution.contributionKg)}</strong><small>${Number(contribution.conversion.demand).toLocaleString(undefined, { maximumSignificantDigits: 6 })} ${escapeHtml(offering.referenceUnit)}</small>`
+            ? `<strong>${formatImpact(scaled?.scaledContributionKg ?? contribution.contributionKg)}</strong><small>${Number(contribution.conversion.demand).toLocaleString(undefined, { maximumSignificantDigits: 6 })} ${escapeHtml(offering.referenceUnit)} per activity unit · activity scale ${Number(scaled?.activityScale ?? 1).toLocaleString(undefined, { maximumSignificantDigits: 6 })}</small>`
             : `<small>${escapeHtml(contribution.reason)}</small>`;
         return `<div class="bonsai-review-row"><span><strong>${escapeHtml(flow.label)}</strong><small>${escapeHtml(activity.name)}</small></span><span>${entry ? `<strong>${escapeHtml(displayBonsaiLabel(entry.label))}</strong><small>${escapeHtml(entry.code)} · ${escapeHtml(flow.backgroundProvider?.region || "region not selected")} · ${escapeHtml(flow.backgroundProvider?.referenceUnit || "reference unit not selected")}</small>` : "<small>Provider selection incomplete</small>"}</span><span>${offering ? `<strong>${Number(offering.gwp100).toLocaleString(undefined, { maximumSignificantDigits: 6 })} ${escapeHtml(offering.emissionUnit)} / ${escapeHtml(offering.referenceUnit)}</strong>` : "<small>Complete selection</small>"}</span><span>${resultCell}</span></div>`;
       }).join("")}
@@ -1507,7 +1666,7 @@ function renderClimateImpact(report) {
   const node = el("climateImpactContent");
   if (!node) return;
   const activityTotals = new Map();
-  report.direct.forEach((row) => activityTotals.set(row.activity.id, (activityTotals.get(row.activity.id) || 0) + row.contributionKg * report.scale));
+  report.direct.forEach((row) => activityTotals.set(row.activity.id, (activityTotals.get(row.activity.id) || 0) + row.scaledContributionKg));
   const values = [...activityTotals.values()];
   const max = Math.max(...values, 1);
   const denominator = report.directTotal || values.reduce((sum, value) => sum + value, 0) || 1;
@@ -1547,13 +1706,19 @@ function renderGraph() {
   const disconnectedActivities = state.dataset.activities.filter((activity) => !connectedIds.has(activity.id));
   const activityNode = (activity, disconnected = false, compact = false) => {
     const stage = lifeCycleStageOptions().find((item) => item.uri === activity.lifeCycleStageUri)?.label || "Lifecycle stage pending";
-    const contribution = activity.flows.reduce((sum, flow) => sum + ((directByFlow.get(flow.id)?.contributionKg || 0) * report.scale), 0);
+    const contribution = activity.flows.reduce((sum, flow) => sum + (directByFlow.get(flow.id)?.scaledContributionKg || 0), 0);
     const inputs = activity.flows.filter((flow) => flow.direction === "input");
     const outputs = activity.flows.filter((flow) => flow.direction === "output");
     const referenceOutput = outputs.find((flow) => flow.determining);
     const backgroundInputs = inputs.filter((flow) => flow.sourceMode === "bonsai");
     if (compact) {
-      return `<button type="button" class="graph-activity-node connection-node ${disconnected ? "disconnected" : ""}" data-select-activity="${activity.id}"><span class="graph-stage">${escapeHtml(stage)}</span><strong>${escapeHtml(activity.name || "Untitled activity")}</strong><small>${escapeHtml(localName(activity.geographyUri))} · ${inputs.length} input${inputs.length === 1 ? "" : "s"} · ${outputs.length} output${outputs.length === 1 ? "" : "s"}</small>${contribution ? `<em>${formatImpact(contribution)} climate contribution</em>` : ""}${referenceOutput ? `<div class="graph-reference-output"><small>Reference output</small><strong>${escapeHtml(referenceOutput.label)} · ${escapeHtml(referenceOutput.amount)} ${escapeHtml(unitLabel(referenceOutput.unitUri))}</strong></div>` : ""}${backgroundInputs.length ? `<div class="graph-background-sources"><small>Background providers</small>${backgroundInputs.slice(0, 3).map((flow) => { const entry = selectedBonsaiEntry(flow); return `<span>${escapeHtml(flow.label)} → ${escapeHtml(entry?.code || "provider pending")}</span>`; }).join("")}</div>` : ""}</button>`;
+      const backgroundNodes = backgroundInputs.slice(0, 2).map((flow) => {
+        const entry = selectedBonsaiEntry(flow);
+        const offering = selectedBonsaiOffering(flow);
+        return `<div class="graph-provider-connection"><div class="graph-provider-node"><span>BONSAI provider</span><small>${escapeHtml(displayBonsaiLabel(entry?.label || "Provider pending"))} · ${escapeHtml(entry?.code || "code pending")} · ${escapeHtml(offering?.region || "region pending")}</small></div><b aria-hidden="true">→</b><div class="graph-provider-input"><small>Input</small><strong>${escapeHtml(flow.label)} · ${escapeHtml(flow.amount)} ${escapeHtml(unitLabel(flow.unitUri))}</strong></div></div>`;
+      }).join("");
+      const hiddenProviderCount = Math.max(0, backgroundInputs.length - 2);
+      return `<button type="button" class="graph-activity-node connection-node ${disconnected ? "disconnected" : ""}" data-select-activity="${activity.id}"><span class="graph-stage">${escapeHtml(stage)}</span><strong>${escapeHtml(activity.name || "Untitled activity")}</strong><small>${escapeHtml(localName(activity.geographyUri))} · ${inputs.length} input${inputs.length === 1 ? "" : "s"} · ${outputs.length} output${outputs.length === 1 ? "" : "s"}</small>${contribution ? `<em>${formatImpact(contribution)} climate contribution</em>` : ""}${backgroundNodes ? `<div class="graph-background-sources">${backgroundNodes}${hiddenProviderCount ? `<small>+ ${hiddenProviderCount} more background provider${hiddenProviderCount === 1 ? "" : "s"}</small>` : ""}</div>` : ""}${referenceOutput ? `<div class="graph-reference-output"><small>Reference output</small><strong>${escapeHtml(referenceOutput.label)} · ${escapeHtml(referenceOutput.amount)} ${escapeHtml(unitLabel(referenceOutput.unitUri))}</strong></div>` : ""}</button>`;
     }
     const limitedRows = (flows, renderer) => {
       const shown = flows.slice(0, 4).map(renderer);
@@ -1596,17 +1761,19 @@ function exportGraph() {
   const { namespace, datasetUri } = graphUris();
   const { study } = state;
   const { goal, scope, functionalUnit, systemBoundary } = study;
+  const english = (value) => ({ "@value": String(value), "@language": "en" });
+  const xsdString = (value) => ({ "@value": String(value), "@type": `${NS.xsd}string` });
   const activityLinkUris = state.dataset.activities.map((activity) => activity.activityLinkUri || `${namespace}activity-link-${slug(activity.id)}`);
   const links = flowLinks();
   const graph = [
   {
-    "@id": study.uri, "@type": `${NS.pefStudy}PEFStudy`, [`${NS.dcterms}title`]: study.title,
+    "@id": study.uri, "@type": `${NS.pefStudy}PEFStudy`, [`${NS.dcterms}title`]: english(study.title),
     [`${NS.pefStudy}hasGoal`]: { "@id": goal.uri }, [`${NS.pefStudy}hasScope`]: { "@id": scope.uri },
     [`${NS.pefStudy}hasProductSystem`]: { "@id": state.productSystem.uri }
   },
   {
-    "@id": goal.uri, "@type": `${NS.pefStudy}Goal`, [`${NS.pefStudy}intendedApplication`]: goal.intendedApplication,
-    ...(goal.decisionContext ? { [`${NS.pefStudy}decisionContext`]: goal.decisionContext } : {}),
+    "@id": goal.uri, "@type": `${NS.pefStudy}Goal`, [`${NS.pefStudy}intendedApplication`]: xsdString(goal.intendedApplication),
+    ...(goal.decisionContext ? { [`${NS.pefStudy}decisionContext`]: xsdString(goal.decisionContext) } : {}),
     [`${NS.pefStudy}commissioner`]: { "@id": goal.commissionerUri }, [`${NS.pefStudy}verifier`]: { "@id": goal.verifierUri }
   },
   { "@id": goal.commissionerUri, "@type": `${NS.foaf}Agent`, [`${NS.foaf}name`]: goal.commissionerName },
@@ -1616,35 +1783,35 @@ function exportGraph() {
     [`${NS.pefStudy}hasFunctionalUnit`]: { "@id": functionalUnit.uri },
     [`${NS.pefStudy}hasSystemBoundary`]: { "@id": systemBoundary.uri },
     [`${NS.pefStudy}includesImpactCategory`]: scope.impactCategoryUris.map((uri) => ({ "@id": uri })),
-    ...(scope.assumption ? { [`${NS.pefStudy}hasAssumption`]: scope.assumption } : {}),
-    ...(scope.limitation ? { [`${NS.pefStudy}hasLimitation`]: scope.limitation } : {}),
-    ...(scope.biodiversityRelevance ? { [`${NS.pefStudy}biodiversityRelevance`]: scope.biodiversityRelevance } : {})
+    ...(scope.assumption ? { [`${NS.pefStudy}hasAssumption`]: xsdString(scope.assumption) } : {}),
+    ...(scope.limitation ? { [`${NS.pefStudy}hasLimitation`]: xsdString(scope.limitation) } : {}),
+    ...(scope.biodiversityRelevance ? { [`${NS.pefStudy}biodiversityRelevance`]: xsdString(scope.biodiversityRelevance) } : {})
   },
   {
     "@id": functionalUnit.uri, "@type": `${NS.pefStudy}FunctionalUnit`,
-    [`${NS.pefStudy}whatProvided`]: functionalUnit.whatProvided, [`${NS.pefStudy}howWellProvided`]: functionalUnit.howWellProvided,
+    [`${NS.pefStudy}whatProvided`]: xsdString(functionalUnit.whatProvided), [`${NS.pefStudy}howWellProvided`]: xsdString(functionalUnit.howWellProvided),
     [`${NS.pefStudy}howMuchProvided`]: { "@type": `${NS.om}Measure`, [`${NS.om}hasUnit`]: { "@id": functionalUnit.howMuchUnitUri }, [`${NS.om}hasNumericalValue`]: { "@value": functionalUnit.howMuchValue, "@type": `${NS.xsd}decimal` } },
     [`${NS.pefStudy}howLongProvided`]: { "@type": `${NS.om}Measure`, [`${NS.om}hasUnit`]: { "@id": functionalUnit.howLongUnitUri }, [`${NS.om}hasNumericalValue`]: { "@value": functionalUnit.howLongValue, "@type": `${NS.xsd}decimal` } },
     [`${NS.pefStudy}hasReferenceFlow`]: { "@id": functionalUnit.referenceFlowUri },
     [`${NS.pefStudy}RFtoFUConversion`]: { "@value": functionalUnit.conversionFactor, "@type": `${NS.xsd}double` },
-    ...(functionalUnit.notCoveredAspect ? { [`${NS.pefStudy}notCoveredAspect`]: functionalUnit.notCoveredAspect } : {})
+    ...(functionalUnit.notCoveredAspect ? { [`${NS.pefStudy}notCoveredAspect`]: xsdString(functionalUnit.notCoveredAspect) } : {})
   },
   {
     "@id": systemBoundary.uri, "@type": `${NS.pefStudy}SystemBoundary`,
     [`${NS.pefStudy}hasBoundaryType`]: { "@id": systemBoundary.boundaryTypeUri },
-    [`${NS.pefStudy}cutOffCriteria`]: systemBoundary.cutOffCriteria, [`${NS.pefStudy}hasJustification`]: systemBoundary.justification,
-    ...(systemBoundary.excludesActivity ? { [`${NS.pefStudy}excludesActivity`]: systemBoundary.excludesActivity } : {}),
-    ...(systemBoundary.exclusionJustification ? { [`${NS.pefStudy}exclusionJustification`]: systemBoundary.exclusionJustification } : {})
+    [`${NS.pefStudy}cutOffCriteria`]: xsdString(systemBoundary.cutOffCriteria), [`${NS.pefStudy}hasJustification`]: xsdString(systemBoundary.justification),
+    ...(systemBoundary.excludesActivity ? { [`${NS.pefStudy}excludesActivity`]: xsdString(systemBoundary.excludesActivity) } : {}),
+    ...(systemBoundary.exclusionJustification ? { [`${NS.pefStudy}exclusionJustification`]: xsdString(systemBoundary.exclusionJustification) } : {})
   },
   {
-    "@id": datasetUri, "@type": `${NS.dataset}LCIDataset`, [`${NS.dcterms}title`]: state.dataset.title,
+    "@id": datasetUri, "@type": `${NS.dataset}LCIDataset`, [`${NS.dcterms}title`]: english(state.dataset.title),
     [`${NS.dataset}hasDatasetType`]: { "@id": `${NS.dataset}${state.dataset.type}` },
     [`${NS.dataset}hasComplianceLevel`]: { "@id": `${NS.dataset}${state.dataset.complianceLevel}` },
     [`${NS.dataset}containsActivity`]: state.dataset.activities.map((activity) => ({ "@id": activity.uri || `${namespace}${slug(activity.id)}` }))
   }];
   graph.push({
     "@id": state.productSystem.uri, "@type": `${NS.productSystem}ProductSystem`,
-    [`${NS.rdfs}label`]: state.productSystem.name,
+    [`${NS.rdfs}label`]: english(state.productSystem.name),
     [`${NS.productSystem}hasActivityLink`]: activityLinkUris.map((uri) => ({ "@id": uri })),
     ...(links.length ? { [`${NS.productSystem}hasFlowLink`]: links.map((link) => ({ "@id": link.uri })) } : {})
   });
@@ -1654,7 +1821,7 @@ function exportGraph() {
     [`${NS.productSystem}toFlow`]: { "@id": link.toFlow }
   }));
   state.flowTypes.filter((item) => !item.ontologyManaged).forEach((item) => graph.push({
-    "@id": item.uri, "@type": `${NS.flow}${item.className}`, [`${NS.flow}sourcedFrom`]: { "@id": datasetUri }, [`${NS.rdfs}label`]: item.label
+    "@id": item.uri, "@type": `${NS.flow}${item.className}`, [`${NS.flow}sourcedFrom`]: { "@id": datasetUri }, [`${NS.rdfs}label`]: english(item.label)
   }));
   state.dataset.activities.forEach((activity) => {
     const activityUri = activity.uri || `${namespace}${slug(activity.id)}`;
@@ -1667,7 +1834,7 @@ function exportGraph() {
     });
     graph.push({
       "@id": activityUri, "@type": `${NS.activity}Activity`,
-      [`${NS.rdfs}label`]: activity.name,
+      [`${NS.rdfs}label`]: english(activity.name),
       [`${NS.activity}isCompanySpecific`]: activity.companySpecific, [`${NS.activity}hasGeography`]: { "@id": activity.geographyUri },
       ...(determining ? { [`${NS.activity}hasDeterminingFlow`]: { "@id": determining.uri || `${namespace}${slug(determining.id)}` } } : {})
     });
@@ -1675,7 +1842,7 @@ function exportGraph() {
       const providerActivityUri = selectedBonsaiOffering(flow)?.activityUri;
       graph.push({
       "@id": flow.uri || `${namespace}${slug(flow.id)}`, "@type": `${NS.flow}Flow`, [`${NS.flow}hasFlowType`]: { "@id": flow.flowTypeUri },
-      [`${NS.flow}contextualLabel`]: flow.label,
+      [`${NS.flow}contextualLabel`]: english(flow.label),
       [flow.direction === "output" ? `${NS.activity}outputOf` : `${NS.activity}inputOf`]: { "@id": activityUri },
       ...(providerActivityUri ? { [`${NS.dcterms}source`]: { "@id": providerActivityUri } } : {}),
       [`${NS.flow}hasMeasure`]: {
@@ -1777,7 +1944,7 @@ function refreshDerivedViews() {
 
 function closeDisclosures() {
   document.querySelector(".source-details")?.removeAttribute("open");
-  document.querySelector(".compat-details")?.removeAttribute("open");
+  document.querySelector("#compatSection")?.removeAttribute("open");
   document.querySelector(".header-menu")?.removeAttribute("open");
 }
 
@@ -1789,10 +1956,12 @@ function applyImportedTtl(text, source) {
   state.flowTypes = imported.flowTypes;
   state.study = imported.study;
   state.compatReport = imported.report;
+  reconcileImportedBonsaiSources();
   state.activeActivityId = state.dataset.activities[0]?.id || "";
   state.activeStep = "review";
   state.exportMode = "ttl";
   if (state.flowTypes.some((item) => item.className === "ElementaryFlow")) loadElementaryIndex();
+  if (state.dataset.activities.some((activity) => activity.flows.some((flow) => flow.providerActivityUri?.startsWith(NS.bonsai)))) loadBonsaiIndex();
   render(); closeDisclosures();
 }
 
@@ -1803,7 +1972,9 @@ function loadUploadedTtl(file) {
     try { applyImportedTtl(String(reader.result || ""), file.name); }
     catch (error) {
       state.compatReport = { source: file.name, imported: [], warnings: [], unsupported: [{ title: "Import failed", detail: error.message }], stats: { statements: 0, datasets: 0, activities: 0, flows: 0, flowTypes: 0 } };
-      renderCompatibility();
+      state.activeStep = "review";
+      render();
+      el("compatSection")?.setAttribute("open", "");
     }
   });
   reader.readAsText(file);
@@ -1963,6 +2134,7 @@ function handleEditorEvent(event) {
     const activity = getActiveActivity();
     const flow = activity?.flows.find((item) => item.id === id);
     if (flow) {
+      const previousUnitUri = flow.unitUri;
       flow[field] = ["checkbox", "radio"].includes(target.type) ? target.checked : target.value;
       if (field === "label") {
         const flowType = getFlowType(flow.flowTypeUri);
@@ -1972,9 +2144,11 @@ function handleEditorEvent(event) {
       if (field === "determining" && target.checked) activity.flows.forEach((item) => { if (item.id !== flow.id) item.determining = false; });
       if (field === "flowTypeUri") {
         const entity = getFlowType(flow.flowTypeUri);
+        if (entity?.className !== "ProductFlow") flow.determining = false;
         if (entity?.className === "ElementaryFlow" && entity.preferredUnitUri) flow.unitUri = entity.preferredUnitUri;
         renderFlowTypeRegistry();
       }
+      if (flow.direction === "output" && ["flowTypeUri", "unitUri"].includes(field)) synchronizeInputsLinkedToOutput(flow, previousUnitUri);
     }
     if (field === "determining" || field === "flowTypeUri") { renderFlows(); renderStudy(); }
     refreshDerivedViews(); return;
@@ -1987,12 +2161,14 @@ function handleEditorEvent(event) {
       item.ontologyManaged = false;
       item.preferredUnitUri = "";
       item.search = "";
+      if (target.value !== "ProductFlow") flow.determining = false;
       flow.sourceMode = "";
       flow.linkedOutputFlowUri = "";
       flow.backgroundProvider = null;
       flow.bonsaiSearch = "";
       removeUnusedFlowTypes();
       if (target.value === "ElementaryFlow") loadElementaryIndex();
+      if (flow.direction === "output") synchronizeInputsLinkedToOutput(flow);
     }
     renderFlows(); refreshDerivedViews(); return;
   } else if (target.dataset.flowtypeField) {
@@ -2094,10 +2270,15 @@ function showExportFeedback(message) {
 function downloadExport(mode) {
   const content = mode === "json" ? toJson() : toTtl();
   const link = document.createElement("a");
-  link.href = URL.createObjectURL(new Blob([content], { type: mode === "json" ? "application/ld+json" : "text/turtle" }));
-  link.download = `${slug(state.dataset.title)}.${mode === "json" ? "jsonld" : "ttl"}`;
-  document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(link.href);
-  showExportFeedback(`Downloaded ${link.download}`);
+  const objectUrl = URL.createObjectURL(new Blob([content], { type: mode === "json" ? "application/ld+json" : "text/turtle" }));
+  const filename = `${slug(state.dataset.title)}.${mode === "json" ? "jsonld" : "ttl"}`;
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  showExportFeedback(`Downloaded ${filename}`);
 }
 
 async function copyExport() {
@@ -2165,10 +2346,11 @@ document.addEventListener("click", (event) => {
   if (target.id === "downloadBoth") { downloadExport("json"); setTimeout(() => downloadExport("ttl"), 180); }
   if (target.dataset.removeActivity) {
     if (!window.confirm("Remove this activity and its flows?")) return;
+    state.dataset.activities.find((item) => item.id === target.dataset.removeActivity)?.flows.forEach(unlinkInputsFromOutput);
     state.dataset.activities = state.dataset.activities.filter((item) => item.id !== target.dataset.removeActivity);
     removeUnusedFlowTypes(); state.activeActivityId = state.dataset.activities[0]?.id || ""; render();
   }
-  if (target.dataset.removeFlow) { const activity = getActiveActivity(); if (activity) activity.flows = activity.flows.filter((item) => item.id !== target.dataset.removeFlow); removeUnusedFlowTypes(); render(); }
+  if (target.dataset.removeFlow) { const activity = getActiveActivity(); const flow = activity?.flows.find((item) => item.id === target.dataset.removeFlow); unlinkInputsFromOutput(flow); if (activity) activity.flows = activity.flows.filter((item) => item.id !== target.dataset.removeFlow); removeUnusedFlowTypes(); render(); }
   if (target.dataset.removeFlowtype) { state.flowTypes = state.flowTypes.filter((item) => item.id !== target.dataset.removeFlowtype); render(); }
   if (target.dataset.selectEf) {
     const item = state.flowTypes.find((entry) => entry.id === target.dataset.selectEf);
@@ -2204,7 +2386,11 @@ document.addEventListener("click", (event) => {
 });
 
 el("activeActivity").addEventListener("change", (event) => { state.activeActivityId = event.target.value; render(); });
-el("ttlUpload").addEventListener("change", (event) => loadUploadedTtl(event.target.files?.[0]));
+el("ttlUpload").addEventListener("change", (event) => {
+  const file = event.target.files?.[0];
+  event.target.value = "";
+  loadUploadedTtl(file);
+});
 
 render();
 loadOntologyOptions();

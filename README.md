@@ -15,13 +15,14 @@ The prototype lets a user define:
 - searchable BONSAI mappings for ProductFlow inputs and outputs, and WasteFlow outputs
 - activity-geography matching and physical-unit preference for BONSAI records, with only explicit supported conversions
 - climate-change contributions from supplying ProductFlow inputs and WasteFlow treatment; ProductFlow output mappings are descriptive and are not counted twice
+- foreground quantity propagation from the functional-unit reference output through linked activity inputs and outputs
 - a visible error centre for incomplete activities, unresolved product sources, and disconnected activity groups
 - one determining output flow per activity
 - JSON-LD and Turtle exports using the same ontology relations
 
 This version has no Brightway and no backend. It uses a static BONSAI v2.1.6 GWP100 catalogue for the limited climate-change calculation shown in the browser. It is intended to be deployable as a Render Static Site.
 
-The included example models two connected foreground activities. A 2 kg steel input is supplied by the global BONSAI steel market (`M_STEL`), converted to its tonnes reference unit, and contributes 6.58 kg CO2e per functional unit. The first activity's reference output is linked to the second activity through a distinct `FlowLink` output/input pair.
+The included example models two connected foreground activities. A 2 kg steel input is supplied by the global BONSAI steel market (`M_STEL`), converted to its tonnes reference unit, and contributes 6.58 kg CO2e per functional unit. The first activity's reference output is linked to the second activity through a distinct `FlowLink` output/input pair. If the upstream activity produces two units per activity run while the downstream activity needs one, its background demand and climate contribution are scaled by one half.
 
 ## Run locally
 
@@ -44,4 +45,14 @@ python scripts/build_ontology_indexes.py \
   --output-dir data
 ```
 
-The browser does not maintain separate hardcoded geography or unit lists. The elementary-flow index drives the searchable dropdown and preserves the selected ontology individual's exact URI. `data/bonsai-catalogue-index.json` contains the static BONSAI provider catalogue. When a provider has monetary and physical records for the same region, the UI prefers a compatible physical reference unit and records the exact selected provider offering in the semantic export.
+The browser does not maintain separate hardcoded geography or unit lists. The elementary-flow index drives the searchable dropdown and preserves the selected ontology individual's exact URI. `data/bonsai-catalogue-index.json` contains 94,462 source records for 1,539 BONSAI provider codes. The deployed selector deliberately exposes only the 61,265 records for 838 providers that carry an exact published BONSAI Activity URI; records without that URI cannot be exported and re-imported without losing provider identity. When a provider has monetary and physical records for the same region, the UI prefers a compatible physical reference unit and records the exact selected provider offering in the semantic export.
+
+## Current ontology-alignment limits
+
+The builder preserves the implemented PEFDPP classes, predicates, units, geographies, FlowType URIs and BONSAI Activity URIs. It is not yet a complete conformance implementation of the full publication ontology:
+
+- the foreground connection terms `FlowLink`, `hasFlowLink`, `flowFrom` and `toFlow` are used by the MVP but are not declared in the current publication ontology;
+- the publication ontology marks `Activity.hasActivityType`, `ProductSystem.hasSystemDiagram`, `PEFStudy.hasAggregatedLCI` and `PEFStudy.hasLCIAResult` as PEF-required, but the current form does not collect or export these values;
+- the browser result is a static BONSAI GWP100 calculation only; EF elementary-flow characterisation and the full EF LCIA result set are not calculated.
+
+These gaps require an ontology-owner and product-scope decision. The app does not invent values for them.
