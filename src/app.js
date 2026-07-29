@@ -32,7 +32,7 @@ const LIFE_CYCLE_STAGES = [
 const state = {
   exportMode: "json",
   activeStep: "dataset",
-  activeActivityId: "act-1",
+  activeActivityId: "act-assembly",
   editingFlowId: "",
   compatReport: null,
   ontologyOptions: { geographies: [], units: [], metadata: null, ready: false, error: "" },
@@ -40,6 +40,15 @@ const state = {
   elementary: { entries: null, metadata: null, loading: false, error: "", openFlowId: "" },
   bonsai: { entries: null, metadata: null, loading: false, error: "", openFlowId: "" },
   flowTypes: [
+    {
+      id: "ft-prepared-material",
+      uri: `${DEFAULT_NAMESPACE}prepared-material`,
+      label: "prepared material",
+      className: "ProductFlow",
+      ontologyManaged: false,
+      preferredUnitUri: "",
+      search: ""
+    },
     {
       id: "ft-finished-product",
       uri: `${DEFAULT_NAMESPACE}finished-product`,
@@ -52,7 +61,7 @@ const state = {
   ],
   productSystem: {
     uri: `${DEFAULT_NAMESPACE}product-system`,
-    name: "Simple product system"
+    name: "Simple connected product system"
   },
   study: {
     uri: `${DEFAULT_NAMESPACE}pef-study`,
@@ -81,7 +90,7 @@ const state = {
       howMuchUnitUri: KG_URI,
       howLongValue: "1",
       howLongUnitUri: `${NS.om}year`,
-      referenceFlowUri: `${DEFAULT_NAMESPACE}flow-1`,
+      referenceFlowUri: `${DEFAULT_NAMESPACE}flow-finished-product`,
       conversionFactor: "1",
       notCoveredAspect: ""
     },
@@ -97,22 +106,56 @@ const state = {
   dataset: {
     uri: `${DEFAULT_NAMESPACE}simple-product-dataset`,
     namespace: DEFAULT_NAMESPACE,
-    title: "Simple product dataset",
+    title: "Simple connected product dataset",
     type: "DPP",
     complianceLevel: "EFCompliant",
     activities: [
       {
-        id: "act-1",
-        uri: `${DEFAULT_NAMESPACE}act-1`,
-        name: "Product manufacturing",
-        activityLinkUri: `${DEFAULT_NAMESPACE}activity-link-act-1`,
+        id: "act-material",
+        uri: `${DEFAULT_NAMESPACE}act-material`,
+        name: "Material preparation",
+        activityLinkUri: `${DEFAULT_NAMESPACE}activity-link-act-material`,
+        lifeCycleStageUri: `${NS.productSystem}RawMaterialAcquisition`,
+        geographyUri: GLO_URI,
+        companySpecific: true,
+        flows: [
+          {
+            id: "flow-prepared-output",
+            uri: `${DEFAULT_NAMESPACE}flow-prepared-output`,
+            label: "prepared material",
+            direction: "output",
+            flowTypeUri: `${DEFAULT_NAMESPACE}prepared-material`,
+            amount: "1",
+            unitUri: KG_URI,
+            determining: true
+          }
+        ]
+      },
+      {
+        id: "act-assembly",
+        uri: `${DEFAULT_NAMESPACE}act-assembly`,
+        name: "Product assembly",
+        activityLinkUri: `${DEFAULT_NAMESPACE}activity-link-act-assembly`,
         lifeCycleStageUri: `${NS.productSystem}Manufacturing`,
         geographyUri: GLO_URI,
         companySpecific: true,
         flows: [
           {
-            id: "flow-1",
-            uri: `${DEFAULT_NAMESPACE}flow-1`,
+            id: "flow-prepared-input",
+            uri: `${DEFAULT_NAMESPACE}flow-prepared-input`,
+            label: "prepared material",
+            direction: "input",
+            flowTypeUri: `${DEFAULT_NAMESPACE}prepared-material`,
+            amount: "1",
+            unitUri: KG_URI,
+            determining: false,
+            sourceMode: "activity",
+            sourceActivityId: "act-material",
+            linkedOutputFlowUri: `${DEFAULT_NAMESPACE}flow-prepared-output`
+          },
+          {
+            id: "flow-finished-product",
+            uri: `${DEFAULT_NAMESPACE}flow-finished-product`,
             label: "finished product",
             direction: "output",
             flowTypeUri: `${DEFAULT_NAMESPACE}finished-product`,
@@ -429,7 +472,7 @@ function climateReport() {
   const nonBonsaiInventory = allFlows.filter(({ flow }) => {
     const className = getFlowType(flow.flowTypeUri)?.className;
     return (flow.direction === "input" && className === "ProductFlow") || (flow.direction === "output" && className === "WasteFlow");
-  }).filter(({ flow }) => flow.sourceMode !== "bonsai");
+  }).filter(({ flow }) => !["bonsai", "activity"].includes(flow.sourceMode));
   const uncharacterisedElementary = allFlows.filter(({ flow }) => getFlowType(flow.flowTypeUri)?.className === "ElementaryFlow");
   const missingReferenceOutputs = state.dataset.activities.filter((activity) => !activity.flows.some((flow) => flow.direction === "output" && flow.determining));
   const fuFactor = Number(state.study.functionalUnit.conversionFactor);
@@ -540,7 +583,7 @@ function activityValidationItems(activity) {
       if (flow.sourceMode === "bonsai") {
         if (!selectedBonsaiOffering(flow)) add("Select a BONSAI dataset and region.", flow.id, "backgroundProvider");
       } else if (flow.sourceMode === "activity" && !linkedOutputForInput(flow, activity.id)) {
-        add("Select the source activity and output.", flow.id, "sourceMode");
+        add("Select a connected output.", flow.id, "sourceMode");
       } else if (!flow.sourceMode) {
         add("Resolve the source of this input.", flow.id, "sourceMode");
       }
@@ -1176,12 +1219,16 @@ function renderActivityNav() {
   el("activityNav").innerHTML = state.dataset.activities.length ? state.dataset.activities.map((activity, index) => {
     const inputs = activity.flows.filter((flow) => flow.direction === "input").length;
     const outputs = activity.flows.filter((flow) => flow.direction === "output").length;
+    const incoming = activity.flows.filter((flow) => flow.direction === "input" && flow.sourceMode === "activity" && linkedOutputForInput(flow, activity.id)).length;
+    const outputUris = new Set(activity.flows.filter((flow) => flow.direction === "output").map((flow) => flowUri(flow)));
+    const outgoing = state.dataset.activities.reduce((count, candidate) => count + candidate.flows.filter((flow) => flow.direction === "input" && outputUris.has(flow.linkedOutputFlowUri)).length, 0);
     const issues = activityValidationItems(activity);
     const stage = lifeCycleStageOptions().find((item) => item.uri === activity.lifeCycleStageUri)?.label || "Stage not selected";
     return `<button class="activity-link ${activity.id === state.activeActivityId ? "active" : ""}" type="button" data-select-activity="${activity.id}">
       <span class="activity-link-title"><b>${index + 1}</b><strong>${escapeHtml(activity.name || "Untitled activity")}</strong></span>
       <small>${escapeHtml(stage)}</small>
       <small>${inputs} input${inputs === 1 ? "" : "s"} · ${outputs} output${outputs === 1 ? "" : "s"}</small>
+      ${incoming || outgoing ? `<small class="activity-linkage">${incoming ? `${incoming} incoming` : ""}${incoming && outgoing ? " · " : ""}${outgoing ? `${outgoing} outgoing` : ""} connection${incoming + outgoing === 1 ? "" : "s"}</small>` : ""}
       <em class="activity-status ${issues.length ? "issue" : "complete"}">${issues.length ? `${issues.length} issue${issues.length === 1 ? "" : "s"}` : "Complete"}</em>
     </button>`;
   }).join("") : `<div class="empty-editor"><strong>No activities yet</strong><span>Add an activity to start building the dataset.</span></div>`;
@@ -1263,9 +1310,8 @@ function renderFlows() {
     const linkedOutput = linkedOutputForInput(flow, activity.id);
     const sourceValue = flow.sourceMode === "bonsai" ? "bonsai" : flow.sourceMode === "external" ? "external" : flow.sourceMode === "activity" ? "activity" : "";
     const availableOutputs = productOutputs(activity.id);
-    const providerActivities = [...new Map(availableOutputs.map((item) => [item.activity.id, item.activity])).values()];
-    const sourceActivityId = flow.sourceActivityId || linkedOutput?.activity.id || "";
-    const sourceOutputs = availableOutputs.filter((item) => item.activity.id === sourceActivityId);
+    const outputGroups = [...new Map(availableOutputs.map((item) => [item.activity.id, item.activity])).entries()]
+      .map(([activityId, providerActivity]) => ({ providerActivity, outputs: availableOutputs.filter((item) => item.activity.id === activityId) }));
     const providerEntry = selectedBonsaiEntry(flow);
     const providerOffering = selectedBonsaiOffering(flow);
     const providerRegions = providerEntry ? [...new Set(providerEntry.offerings.map((item) => item.region))] : [];
@@ -1278,7 +1324,7 @@ function renderFlows() {
     return `<section class="flow-source-picker"><h4>${sourceHeading}</h4>
       <select data-product-source="${flow.id}"><option value="" ${sourceValue ? "" : "selected"}>${unresolvedLabel}</option><option value="bonsai" ${sourceValue === "bonsai" ? "selected" : ""}>${bonsaiLabel}</option>${flow.direction === "input" && flowType.className === "ProductFlow" ? `<option value="activity" ${sourceValue === "activity" ? "selected" : ""}>Produced by another activity in this product system</option>` : ""}<option value="external" ${sourceValue === "external" ? "selected" : ""}>External product or DPP</option></select>
       ${flow.direction === "output" && flowType.className === "ProductFlow" && !flow.sourceMode ? `<p class="method-note">This product is supplied by the current activity. A BONSAI link is optional.</p>` : ""}
-      ${flow.sourceMode === "activity" ? `<p class="method-note">This input is supplied by an output from another activity.</p><div class="source-link-selectors"><label>Source activity<select data-source-activity="${flow.id}"><option value="">Select activity</option>${providerActivities.map((providerActivity) => `<option value="${escapeHtml(providerActivity.id)}" ${providerActivity.id === sourceActivityId ? "selected" : ""}>${escapeHtml(providerActivity.name || "Untitled activity")}</option>`).join("")}</select></label><label>Source output<select data-source-output="${flow.id}" ${sourceActivityId ? "" : "disabled"}><option value="">Select output</option>${sourceOutputs.map(({ flow: providerFlow }) => `<option value="${escapeHtml(providerFlow.uri || providerFlow.id)}" ${(providerFlow.uri || providerFlow.id) === flow.linkedOutputFlowUri ? "selected" : ""}>${escapeHtml(providerFlow.label || "Unnamed output")}</option>`).join("")}</select></label></div>${linkedOutput ? `<div class="source-link-card"><strong>Linked activity output</strong><span>${escapeHtml(linkedOutput.activity.name)} → ${escapeHtml(linkedOutput.flow.label)}</span></div>` : ""}<details class="ontology-details compact-ontology"><summary>Ontology details</summary><p>ProductSystem → hasFlowLink → FlowLink. The output and input remain separate flows.</p></details>` : ""}
+      ${flow.sourceMode === "activity" ? `<p class="method-note">This input is supplied by an output from another activity.</p><label class="connected-output-selector">Connected output<select data-source-output="${flow.id}"><option value="">Select an activity output</option>${outputGroups.map(({ providerActivity, outputs }) => `<optgroup label="${escapeHtml(providerActivity.name || "Untitled activity")}">${outputs.map(({ flow: providerFlow }) => `<option value="${escapeHtml(flowUri(providerFlow))}" ${flowUri(providerFlow) === flow.linkedOutputFlowUri ? "selected" : ""}>${escapeHtml(providerFlow.label || "Unnamed output")} · ${escapeHtml(providerFlow.amount)} ${escapeHtml(unitLabel(providerFlow.unitUri))}</option>`).join("")}</optgroup>`).join("")}</select></label>${availableOutputs.length ? "" : `<p class="inline-error">Add a product output to another activity before creating this connection.</p>`}${linkedOutput ? `<div class="internal-link-preview"><div><small>Supplier</small><strong>${escapeHtml(linkedOutput.activity.name)}</strong></div><div class="internal-link-edge"><span>${escapeHtml(linkedOutput.flow.label)} · ${escapeHtml(linkedOutput.flow.amount)} ${escapeHtml(unitLabel(linkedOutput.flow.unitUri))}</span><b>→</b><em>Internal connection</em><b>→</b><span>${escapeHtml(flow.label || "This input")}</span></div><div><small>Receiver</small><strong>${escapeHtml(activity.name)}</strong></div></div>` : ""}<details class="ontology-details compact-ontology"><summary>Ontology details</summary><p>ProductSystem → hasFlowLink → FlowLink. The supplying output and receiving input remain separate Flow instances.</p></details>` : ""}
       ${flow.sourceMode === "external" ? `<div class="source-link-card"><strong>External product or DPP</strong><span>Reference-only connection. Preserve the selected external FlowType URI when importing a dataset.</span></div>` : ""}
       ${flow.sourceMode === "bonsai" ? `<div class="bonsai-controls single-combobox"><label>Select BONSAI background dataset<input role="combobox" aria-expanded="${state.bonsai.openFlowId === flow.id}" type="search" value="${escapeHtml(flow.bonsaiSearch || providerEntry?.label || "")}" placeholder="Search BONSAI process or code" data-bonsai-search-flow="${flow.id}" autocomplete="off" /></label>
       ${state.bonsai.openFlowId === flow.id ? `<div class="ef-results ef-dropdown" role="listbox">${state.bonsai.loading ? `<span class="picker-note">Loading BONSAI catalogue…</span>` : state.bonsai.error ? `<span class="inline-error">${escapeHtml(state.bonsai.error)}</span>` : providerChoices.map((entry) => `<button type="button" role="option" data-select-bonsai-flow="${flow.id}" data-bonsai-code="${escapeHtml(entry.code)}"><strong>${escapeHtml(entry.label)}</strong><span>${escapeHtml(entry.code)} · ${entry.offerings.length} record${entry.offerings.length === 1 ? "" : "s"}</span></button>`).join("") || `<span class="picker-note">${bonsaiQueryReady ? "No matching BONSAI datasets." : "Type at least 2 characters to search."}</span>`}</div>` : ""}
@@ -1288,10 +1334,11 @@ function renderFlows() {
   };
   const rows = (flows, heading) => `<section class="flow-group"><div class="flow-group-heading"><h3>${heading}</h3><span>${flows.length} ${flows.length === 1 ? "flow" : "flows"}</span></div>${flows.length ? flows.map((flow) => {
     const flowType = getFlowType(flow.flowTypeUri) || createFlowTypeForFlow(flow);
+    const linkedOutput = linkedOutputForInput(flow, activity.id);
     const expanded = state.editingFlowId === flow.id;
     const elementaryOptions = flowType.className === "ElementaryFlow" ? elementaryChoices(flowType) : [];
     const sourceState = flow.sourceMode === "bonsai" ? (selectedBonsaiOffering(flow) ? "BONSAI dataset selected" : "Select BONSAI dataset")
-      : flow.sourceMode === "activity" ? "Linked activity output"
+      : flow.sourceMode === "activity" ? (linkedOutput ? `From ${linkedOutput.activity.name} → ${linkedOutput.flow.label}` : "Select connected output")
         : flow.sourceMode === "external" ? "External DPP reference"
           : flowType.className === "ElementaryFlow" ? "Direct elementary flow"
             : flow.direction === "output" && flowType.className === "ProductFlow" ? "Produced by this activity"
@@ -1300,8 +1347,13 @@ function renderFlows() {
     const providerEntry = selectedBonsaiEntry(flow);
     const providerOffering = selectedBonsaiOffering(flow);
     const quantityReady = sourceReadyForQuantity(flow, activity.id);
-    const compatibleUnits = providerOffering ? compatibleUnitsForBonsai(flow) : flowType.className === "ElementaryFlow" ? units : commonExchangeUnits();
-    const unitHint = !quantityReady && acceptsBonsaiProvider(flow) ? "Choose and complete the source first." : providerOffering ? `Set from BONSAI reference unit: ${providerOffering.referenceUnit}.` : "";
+    const compatibleUnits = flow.sourceMode === "activity" && linkedOutput
+      ? units.filter((item) => item.uri === linkedOutput.flow.unitUri)
+      : providerOffering ? compatibleUnitsForBonsai(flow)
+        : flowType.className === "ElementaryFlow" ? units : commonExchangeUnits();
+    const unitHint = !quantityReady && acceptsBonsaiProvider(flow) ? "Choose and complete the source first."
+      : flow.sourceMode === "activity" && linkedOutput ? `Set by the connected output: ${unitLabel(linkedOutput.flow.unitUri)}.`
+        : providerOffering ? `Set from BONSAI reference unit: ${providerOffering.referenceUnit}.` : "";
     const unitLocked = flow.sourceMode === "bonsai" || flow.sourceMode === "activity" || (flowType.className === "ElementaryFlow" && flowType.preferredUnitUri);
     const unitDisabled = !state.ontologyOptions.ready || !quantityReady || unitLocked;
     const unitOptions = compatibleUnits.map((item) => `<option value="${escapeHtml(item.uri)}" ${item.uri === flow.unitUri ? "selected" : ""}>${escapeHtml(bonsaiUnitOptionLabel(item, providerOffering))}</option>`).join("");
@@ -1446,7 +1498,9 @@ function renderClimateImpact(report) {
 function renderSemanticTree() {
   const node = el("semanticTree");
   if (!node) return;
-  node.innerHTML = `<ul><li><strong>PEFStudy</strong><span>${escapeHtml(state.study.title)}</span><ul><li><strong>Goal</strong></li><li><strong>Scope</strong><ul><li><strong>FunctionalUnit</strong><span>${escapeHtml(state.study.functionalUnit.whatProvided)}</span></li><li><strong>SystemBoundary</strong></li></ul></li><li><strong>ProductSystem</strong><span>${escapeHtml(state.productSystem.name)}</span><ul>${state.dataset.activities.map((activity) => `<li><strong>ActivityLink → Activity</strong><span>${escapeHtml(activity.name)}</span><ul>${activity.flows.map((flow) => `<li>Flow · ${escapeHtml(flow.label)} · ${escapeHtml(flowTypeLabel(flow.flowTypeUri))}</li>`).join("")}</ul></li>`).join("")}</ul></li></ul>`;
+  const allFlows = new Map(state.dataset.activities.flatMap((activity) => activity.flows.map((flow) => [flowUri(flow), flow])));
+  const linkItems = flowLinks().map((link) => `<li><strong>FlowLink</strong><span>${escapeHtml(allFlows.get(link.flowFrom)?.label || localName(link.flowFrom))} → ${escapeHtml(allFlows.get(link.toFlow)?.label || localName(link.toFlow))}</span></li>`).join("");
+  node.innerHTML = `<ul><li><strong>PEFStudy</strong><span>${escapeHtml(state.study.title)}</span><ul><li><strong>Goal</strong></li><li><strong>Scope</strong><ul><li><strong>FunctionalUnit</strong><span>${escapeHtml(state.study.functionalUnit.whatProvided)}</span></li><li><strong>SystemBoundary</strong></li></ul></li><li><strong>ProductSystem</strong><span>${escapeHtml(state.productSystem.name)}</span><ul>${state.dataset.activities.map((activity) => `<li><strong>ActivityLink → Activity</strong><span>${escapeHtml(activity.name)}</span><ul>${activity.flows.map((flow) => `<li>Flow · ${escapeHtml(flow.label)} · ${escapeHtml(flowTypeLabel(flow.flowTypeUri))}</li>`).join("")}</ul></li>`).join("")}${linkItems}</ul></li></ul>`;
 }
 
 function renderGraph() {
@@ -1461,26 +1515,26 @@ function renderGraph() {
       return source ? { sourceActivity: source.activity, sourceOutput: source.flow, receivingActivity, input } : null;
     }).filter(Boolean));
   const connectedIds = new Set(connections.flatMap((link) => [link.sourceActivity.id, link.receivingActivity.id]));
-  const connectedActivities = state.dataset.activities.filter((activity) => connectedIds.has(activity.id));
   const disconnectedActivities = state.dataset.activities.filter((activity) => !connectedIds.has(activity.id));
-  const levels = new Map(connectedActivities.map((activity) => [activity.id, 0]));
-  for (let iteration = 0; iteration < connectedActivities.length; iteration += 1) {
-    connections.forEach((link) => levels.set(link.receivingActivity.id, Math.max(levels.get(link.receivingActivity.id) || 0, (levels.get(link.sourceActivity.id) || 0) + 1)));
-  }
-  const activityNode = (activity, disconnected = false) => {
+  const activityNode = (activity, disconnected = false, compact = false) => {
     const stage = lifeCycleStageOptions().find((item) => item.uri === activity.lifeCycleStageUri)?.label || "Lifecycle stage pending";
     const contribution = activity.flows.reduce((sum, flow) => sum + ((directByFlow.get(flow.id)?.contributionKg || 0) * report.scale), 0);
     const inputs = activity.flows.filter((flow) => flow.direction === "input");
     const outputs = activity.flows.filter((flow) => flow.direction === "output");
+    const referenceOutput = outputs.find((flow) => flow.determining);
+    const backgroundInputs = inputs.filter((flow) => flow.sourceMode === "bonsai");
+    if (compact) {
+      return `<button type="button" class="graph-activity-node connection-node ${disconnected ? "disconnected" : ""}" data-select-activity="${activity.id}"><span class="graph-stage">${escapeHtml(stage)}</span><strong>${escapeHtml(activity.name || "Untitled activity")}</strong><small>${escapeHtml(localName(activity.geographyUri))} · ${inputs.length} input${inputs.length === 1 ? "" : "s"} · ${outputs.length} output${outputs.length === 1 ? "" : "s"}</small>${contribution ? `<em>${formatImpact(contribution)} climate contribution</em>` : ""}${referenceOutput ? `<div class="graph-reference-output"><small>Reference output</small><strong>${escapeHtml(referenceOutput.label)} · ${escapeHtml(referenceOutput.amount)} ${escapeHtml(unitLabel(referenceOutput.unitUri))}</strong></div>` : ""}${backgroundInputs.length ? `<div class="graph-background-sources"><small>Background providers</small>${backgroundInputs.slice(0, 3).map((flow) => { const entry = selectedBonsaiEntry(flow); return `<span>${escapeHtml(entry?.label || flow.label)}</span>`; }).join("")}</div>` : ""}</button>`;
+    }
     const limitedRows = (flows, renderer) => {
       const shown = flows.slice(0, 4).map(renderer);
       if (flows.length > 4) shown.push(`<li class="graph-more">+ ${flows.length - 4} more</li>`);
       return shown.join("");
     };
     const inputRows = limitedRows(inputs, (flow) => {
-      const entry = selectedBonsaiEntry(flow); const offering = selectedBonsaiOffering(flow);
+      const entry = selectedBonsaiEntry(flow); const offering = selectedBonsaiOffering(flow); const linked = linkedOutputForInput(flow, activity.id);
       const sameLabel = entry && entry.label.trim().toLowerCase() === flow.label.trim().toLowerCase();
-      const provider = flow.sourceMode === "bonsai" ? `<div class="graph-provider-node"><span>BONSAI</span><small>${sameLabel ? "" : `${escapeHtml(entry?.label || "Provider pending")} · `}${escapeHtml(entry?.code || "code pending")} · ${escapeHtml(offering?.region || "region pending")}</small></div>` : flow.sourceMode === "activity" ? `<small class="linked-input">Supplied by another activity</small>` : "";
+      const provider = flow.sourceMode === "bonsai" ? `<div class="graph-provider-node"><span>BONSAI</span><small>${sameLabel ? "" : `${escapeHtml(entry?.label || "Provider pending")} · `}${escapeHtml(entry?.code || "code pending")} · ${escapeHtml(offering?.region || "region pending")}</small></div>` : flow.sourceMode === "activity" ? `<small class="linked-input">From ${escapeHtml(linked?.activity.name || "activity pending")} → ${escapeHtml(linked?.flow.label || "output pending")}</small>` : "";
       return `<li><span>${escapeHtml(flow.label || "Unnamed input")} · ${escapeHtml(flow.amount)} ${escapeHtml(unitLabel(flow.unitUri))}</span>${provider}</li>`;
     }) || "<li><span>No inputs</span></li>";
     const outputRows = limitedRows(outputs, (flow) => {
@@ -1490,14 +1544,11 @@ function renderGraph() {
     }) || "<li><span>No outputs</span></li>";
     return `<button type="button" class="graph-activity-node ${disconnected ? "disconnected" : ""}" data-select-activity="${activity.id}"><span class="graph-stage">${escapeHtml(stage)}</span><strong>${escapeHtml(activity.name || "Untitled activity")}</strong><small>${escapeHtml(localName(activity.geographyUri))}</small>${contribution ? `<em>${formatImpact(contribution)} climate contribution</em>` : ""}<div class="graph-flow-group"><b>${inputs.length} input${inputs.length === 1 ? "" : "s"}</b><ul>${inputRows}</ul></div><div class="graph-flow-group outputs"><b>${outputs.length} output${outputs.length === 1 ? "" : "s"}</b><ul>${outputRows}</ul></div></button>`;
   };
-  const grouped = new Map();
-  connectedActivities.forEach((activity) => { const level = levels.get(activity.id) || 0; grouped.set(level, [...(grouped.get(level) || []), activity]); });
-  const columns = [...grouped.entries()].sort(([a], [b]) => a - b).map(([level, activitiesAtLevel]) => `<section class="network-column"><span>Process ${level + 1}</span>${activitiesAtLevel.map((activity) => activityNode(activity)).join("")}</section>`).join("");
-  const wires = connections.map(({ sourceActivity, sourceOutput, receivingActivity, input }) => `<div class="flowlink-wire"><strong>${escapeHtml(sourceActivity.name || "Source activity")}</strong><span>${escapeHtml(sourceOutput.label)} · ${escapeHtml(sourceOutput.amount)} ${escapeHtml(unitLabel(sourceOutput.unitUri))}</span><b>→</b><i>FlowLink</i><b>→</b><span>${escapeHtml(input.label)} · ${escapeHtml(input.amount)} ${escapeHtml(unitLabel(input.unitUri))}</span><strong>${escapeHtml(receivingActivity.name || "Receiving activity")}</strong></div>`).join("");
+  const connectionRows = connections.map(({ sourceActivity, sourceOutput, receivingActivity, input }, index) => `<article class="network-connection"><div class="connection-role"><span>Supplier</span>${activityNode(sourceActivity, false, true)}</div><div class="connection-edge"><small>Connection ${index + 1}</small><div class="edge-flow output"><span>Output</span><strong>${escapeHtml(sourceOutput.label)}</strong><em>${escapeHtml(sourceOutput.amount)} ${escapeHtml(unitLabel(sourceOutput.unitUri))}</em></div><div class="edge-arrow"><b>→</b><span>Internal connection</span><b>→</b></div><div class="edge-flow input"><span>Input</span><strong>${escapeHtml(input.label)}</strong><em>${escapeHtml(input.amount)} ${escapeHtml(unitLabel(input.unitUri))}</em></div></div><div class="connection-role"><span>Receiver</span>${activityNode(receivingActivity, false, true)}</div></article>`).join("");
   const standalone = state.dataset.activities.length === 1 ? `<div class="network-main standalone-network"><section class="network-column"><span>Product system activity</span>${activityNode(state.dataset.activities[0])}</section></div>` : "";
   const disconnected = state.dataset.activities.length > 1 && disconnectedActivities.length ? `<section class="disconnected-area"><h3>Disconnected activities</h3><div>${disconnectedActivities.map((activity) => activityNode(activity, true)).join("")}</div></section>` : "";
   const empty = state.dataset.activities.length ? "" : `<div class="graph-empty">Add an activity to view the product-system network.</div>`;
-  node.innerHTML = `${standalone}${!standalone && columns ? `<div class="network-main">${columns}</div>` : ""}${wires ? `<section class="flowlink-network"><h3>Activity connections</h3>${wires}</section>` : ""}${disconnected}${empty}`;
+  node.innerHTML = `${standalone}${connectionRows ? `<section class="connection-map"><div class="connection-map-heading"><h3>Activity network</h3><span>${connections.length} internal connection${connections.length === 1 ? "" : "s"}</span></div>${connectionRows}</section>` : ""}${disconnected}${empty}`;
 }
 
 function renderCompatibility() {
@@ -1716,17 +1767,6 @@ function applyImportedTtl(text, source) {
   render(); closeDisclosures();
 }
 
-async function loadBundledPvTtl() {
-  try {
-    const response = await fetch("examples/pv_excel_import/pv_panel_lci_ontology.ttl");
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    applyImportedTtl(await response.text(), "PV Excel ontology example");
-  } catch (error) {
-    state.compatReport = { source: "PV Excel ontology example", imported: [], warnings: [], unsupported: [{ title: "Import failed", detail: error.message }], stats: { statements: 0, datasets: 0, productSystems: 0, activityLinks: 0, activities: 0, flows: 0, flowTypes: 0 } };
-    renderCompatibility();
-  }
-}
-
 function loadUploadedTtl(file) {
   if (!file) return;
   const reader = new FileReader();
@@ -1793,25 +1833,35 @@ function addFlow(direction) {
 
 function loadExample() {
   const ns = DEFAULT_NAMESPACE;
-  state.productSystem = { uri: `${ns}product-system`, name: "Simple product system" };
+  state.productSystem = { uri: `${ns}product-system`, name: "Simple connected product system" };
   state.flowTypes = [
+    { id: "ft-prepared-material", uri: `${ns}prepared-material`, label: "prepared material", className: "ProductFlow", ontologyManaged: false, preferredUnitUri: "", search: "" },
     { id: "ft-finished-product", uri: `${ns}finished-product`, label: "finished product", className: "ProductFlow", ontologyManaged: false, preferredUnitUri: "", search: "" }
   ];
   state.dataset = {
-    uri: `${ns}simple-product-dataset`, namespace: ns, title: "Simple product dataset", type: "DPP", complianceLevel: "EFCompliant",
-    activities: [{
-      id: "act-1", uri: `${ns}act-1`, name: "Product manufacturing",
-      activityLinkUri: `${ns}activity-link-act-1`, lifeCycleStageUri: `${NS.productSystem}Manufacturing`,
-      geographyUri: GLO_URI, companySpecific: true,
-      flows: [
-        { id: "flow-1", uri: `${ns}flow-1`, label: "finished product", direction: "output", flowTypeUri: `${ns}finished-product`, amount: "1", unitUri: KG_URI, determining: true }
-      ]
-    }]
+    uri: `${ns}simple-product-dataset`, namespace: ns, title: "Simple connected product dataset", type: "DPP", complianceLevel: "EFCompliant",
+    activities: [
+      {
+        id: "act-material", uri: `${ns}act-material`, name: "Material preparation",
+        activityLinkUri: `${ns}activity-link-act-material`, lifeCycleStageUri: `${NS.productSystem}RawMaterialAcquisition`,
+        geographyUri: GLO_URI, companySpecific: true,
+        flows: [{ id: "flow-prepared-output", uri: `${ns}flow-prepared-output`, label: "prepared material", direction: "output", flowTypeUri: `${ns}prepared-material`, amount: "1", unitUri: KG_URI, determining: true }]
+      },
+      {
+        id: "act-assembly", uri: `${ns}act-assembly`, name: "Product assembly",
+        activityLinkUri: `${ns}activity-link-act-assembly`, lifeCycleStageUri: `${NS.productSystem}Manufacturing`,
+        geographyUri: GLO_URI, companySpecific: true,
+        flows: [
+          { id: "flow-prepared-input", uri: `${ns}flow-prepared-input`, label: "prepared material", direction: "input", flowTypeUri: `${ns}prepared-material`, amount: "1", unitUri: KG_URI, determining: false, sourceMode: "activity", sourceActivityId: "act-material", linkedOutputFlowUri: `${ns}flow-prepared-output` },
+          { id: "flow-finished-product", uri: `${ns}flow-finished-product`, label: "finished product", direction: "output", flowTypeUri: `${ns}finished-product`, amount: "1", unitUri: KG_URI, determining: true }
+        ]
+      }
+    ]
   };
-  state.study = defaultStudy(ns, `${ns}flow-1`, "Simple product footprint study");
+  state.study = defaultStudy(ns, `${ns}flow-finished-product`, "Simple product footprint study");
   state.study.goal.decisionContext = "Internal product improvement";
   state.study.functionalUnit.whatProvided = "One finished product";
-  state.activeActivityId = "act-1"; state.compatReport = null; state.activeStep = "dataset"; state.exportMode = "json";
+  state.activeActivityId = "act-assembly"; state.compatReport = null; state.activeStep = "dataset"; state.exportMode = "json";
   render(); closeDisclosures();
 }
 
@@ -2038,7 +2088,6 @@ document.addEventListener("click", (event) => {
   if (target.id === "addInputFlow") addFlow("input");
   if (target.id === "addOutputFlow") addFlow("output");
   if (target.id === "loadExample") loadExample();
-  if (target.id === "loadPvTtl") loadBundledPvTtl();
   if (target.id === "resetDataset") resetDataset();
   if (target.id === "importTtlButton") el("ttlUpload").click();
   if (stepButton) goToStep(stepButton.dataset.step);

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>CE-RISE PEFDPP Dataset Builder</title>
-    <link rel="stylesheet" href="styles/styles.css?v=20260728-1" />
+    <link rel="stylesheet" href="styles/styles.css?v=20260729-1" />
   </head>
   <body>
     <header class="topbar">
@@ -18,13 +18,7 @@
       <div class="topbar-actions">
         <input id="ttlUpload" type="file" hidden accept=".ttl,text/turtle,text/plain" />
         <button id="importTtlButton" class="button quiet" type="button">Import dataset</button>
-        <details class="header-menu">
-          <summary class="button quiet" role="button">Examples</summary>
-          <div class="menu-popover">
-            <button id="loadExample" type="button">Simple example</button>
-            <button id="loadPvTtl" type="button">PV ontology example</button>
-          </div>
-        </details>
+        <button id="loadExample" class="button quiet" type="button">Load example</button>
         <button id="resetDataset" class="button new-dataset" type="button">New dataset</button>
       </div>
     </header>
@@ -33,7 +27,7 @@
       <nav class="steps" aria-label="Dataset creation steps">
         <button id="stepDataset" class="step-button active" type="button" data-step="dataset">
           <span class="step-number">1</span>
-          <span><strong>Dataset</strong><small id="navDatasetTitle">Simple product dataset</small></span>
+          <span><strong>Dataset</strong><small id="navDatasetTitle">Simple connected product dataset</small></span>
         </button>
         <span class="step-line" aria-hidden="true"></span>
         <button id="stepActivities" class="step-button" type="button" data-step="activities">
@@ -65,7 +59,7 @@
         <div class="form-panel dataset-form">
           <label class="wide-field">
             Dataset title
-            <input id="datasetTitle" type="text" value="Simple product dataset" />
+            <input id="datasetTitle" type="text" value="Simple connected product dataset" />
           </label>
           <div class="field-grid">
             <label>
@@ -86,7 +80,7 @@
           </div>
           <label class="wide-field">
             Product system name
-            <input id="productSystemName" type="text" value="Simple product system" />
+            <input id="productSystemName" type="text" value="Simple connected product system" />
           </label>
           <details class="advanced-details">
             <summary>Advanced identifiers</summary>
@@ -334,6 +328,6 @@
       </section>
     </main>
 
-  <script src="src/app.js?v=20260728-1"></script>
+    <script src="src/app.js?v=20260729-1"></script>
   </body>
 </html>
