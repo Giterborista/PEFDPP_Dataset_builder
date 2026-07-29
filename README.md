@@ -21,6 +21,8 @@ The prototype lets a user define:
 
 This version has no Brightway and no backend. It uses a static BONSAI v2.1.6 GWP100 catalogue for the limited climate-change calculation shown in the browser. It is intended to be deployable as a Render Static Site.
 
+The included example models two connected foreground activities. A 2 kg steel input is supplied by the global BONSAI steel market (`M_STEL`), converted to its tonnes reference unit, and contributes 6.58 kg CO2e per functional unit. The first activity's reference output is linked to the second activity through a distinct `FlowLink` output/input pair.
+
 ## Run locally
 
 The generated ontology indexes are loaded with `fetch`, so serve the folder instead of opening `index.html` directly:
