@@ -244,7 +244,9 @@ function dppAttach(flowId, parsed, outputUri, amount) {
     activity.flows.forEach((flow) => { flow.id = uid("dpp-flow"); });
     candidate.dataset.activities.push(activity);
   });
-  sources.filter((source) => imported.some((activity) => activity.sourceDppUri === source.uri)).forEach((source) => {
+  const requiredSourceUris = new Set([parsed.dataset.uri, ...imported.flatMap((activity) =>
+    [activity.sourceDppUri, ...activity.flows.map((flow) => flow.connectedDppUri)].filter(Boolean))]);
+  sources.filter((source) => requiredSourceUris.has(source.uri)).forEach((source) => {
     const existing = candidate.connectedDpps.find((item) => item.uri === source.uri);
     if (existing && JSON.stringify(existing.study) !== JSON.stringify(source.study)) throw new Error("This DPP URI has a different study context. Import it with a new version URI.");
     if (!existing) candidate.connectedDpps.push(dppClone(source));

@@ -13,7 +13,7 @@ function engine() {
   run(`state.ontologyOptions = {...options, ready:true}; state.studyOptions = {...studyOptions, ready:true};
     state.bonsai.entries=catalogue.entries.map(([code,label,className,offerings])=>({code,label,className,
       offerings:offerings.map(([region,referenceUnit,gwp100,emissionUnit,activityUri])=>({region,referenceUnit,gwp100,emissionUnit,activityUri})).filter(o=>o.activityUri)})).filter(e=>e.offerings.length);`);
-  return { context, run, load(ttl) { context.ttl = ttl; run(`const loaded=parseTtlSubset(ttl); state.dataset=loaded.dataset;state.productSystem=loaded.productSystem;state.flowTypes=loaded.flowTypes;state.study=loaded.study;state.connectedDpps=loaded.connectedDpps;state.compatReport=loaded.report;reconcileImportedBonsaiSources();`); },
+  return { context, run, load(ttl) { context.ttl = ttl; run(`{ const loaded=parseTtlSubset(ttl); state.dataset=loaded.dataset;state.productSystem=loaded.productSystem;state.flowTypes=loaded.flowTypes;state.study=loaded.study;state.connectedDpps=loaded.connectedDpps;state.compatReport=loaded.report;reconcileImportedBonsaiSources(); }`); },
     value(code) { return JSON.parse(JSON.stringify(run(code))); },
     prepare(ttl) { context.nextTtl = ttl; run(`globalThis.prepared=dppPrepare(nextTtl,"test.ttl")`); },
     attach(amount = '1') { context.amount = amount; return run(`dppAttach(state.dataset.activities[0].flows.find(f=>f.direction==='input').id,prepared,prepared.study.functionalUnit.referenceFlowUri,amount)`); },

@@ -97,3 +97,7 @@ The suite covers batch output scaling, nested composition, shared providers,
 reversible replacement/disconnection, invalid inputs, URI conflicts, source
 contexts, Turtle/JSON-LD cycles and project case regressions when those local
 files are available. GitHub Actions runs it on pushes and pull requests.
+
+Dialog-handler unit tests cover output selection, explicit demand, invalid files,
+confirmation, cancellation and disconnection using a small DOM test double.
+They do not substitute for browser layout or end-to-end checks.

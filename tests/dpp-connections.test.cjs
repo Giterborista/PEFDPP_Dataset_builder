@@ -100,6 +100,21 @@ test('unrelated source activities are excluded from the connected output closure
   const e=setup();e.prepare(fixture('cartridge'));e.run(`const unrelated=dppClone(prepared.dataset.activities[0]);unrelated.id='unused';unrelated.uri+='-unused';unrelated.flows.forEach(f=>{f.id+='-unused';f.uri+='-unused'});prepared.dataset.activities.push(unrelated)`);
   e.attach(1);assert.equal(e.value('state.dataset.activities.length'),2);near(total(e),2*3.041537783);
 });
+test('selecting a nested supplier output retains the containing passport provenance',()=>{
+  const child=engine();child.load(fixture('cartridge',{raw:false}));child.prepare(fixture('plastic'));child.attach(1);
+  const e=setup();e.prepare(child.export());e.run(`dppAttach(state.dataset.activities[0].flows[0].id,prepared,'https://example.org/plastic#out',3)`);
+  assert.equal(e.value('state.dataset.activities.length'),2);
+  assert.equal(e.value('state.connectedDpps.length'),2);
+  assert.ok(e.run(`dppSourceCard(state.dataset.activities[0].flows[0])`).includes('Replace DPP'));
+  near(total(e),6*3.041537783);
+  for(const format of ['toTtl()','dppReadText(toJson())']) {
+    const roundtrip=engine();roundtrip.load(e.run(format));near(total(roundtrip),total(e));
+    assert.deepEqual(roundtrip.value('state.compatReport.warnings'),[]);
+    assert.equal(roundtrip.value('state.connectedDpps.length'),2);
+    roundtrip.run(`dppDisconnect(state.dataset.activities[0].flows[0].id)`);
+    assert.equal(roundtrip.value('state.connectedDpps.length'),0);
+  }
+});
 test('unit and flow type mismatches within a source connection are rejected',()=>{
   const child=engine();child.load(fixture('cartridge',{raw:false}));child.prepare(fixture('plastic'));child.attach(1);
   const e=setup();e.prepare(child.export());e.run(`prepared.dataset.activities[0].flows[0].unitUri=KG_URI`);assert.throws(()=>e.attach(1),/must match/);
