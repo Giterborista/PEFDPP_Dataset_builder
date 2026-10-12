@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Urbanist:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles/styles.css?v=20260729-5" />
+    <link rel="stylesheet" href="styles/styles.css?v=20261012-dpp1" />
   </head>
   <body>
     <header class="topbar">
@@ -19,7 +19,8 @@
         </div>
       </div>
       <div class="topbar-actions">
-        <input id="ttlUpload" type="file" hidden accept=".ttl,text/turtle,text/plain" />
+        <input id="ttlUpload" type="file" hidden accept=".ttl,.jsonld,.json,text/turtle,text/plain,application/ld+json" />
+        <input id="dppUpload" type="file" hidden accept=".ttl,.jsonld,.json,text/turtle,text/plain,application/ld+json" />
         <button id="importTtlButton" class="button quiet" type="button">Import Turtle</button>
         <button id="loadExample" class="button quiet" type="button">Load example</button>
         <button id="resetDataset" class="button new-dataset" type="button">New dataset</button>
@@ -260,6 +261,7 @@
         </section>
 
         <section id="reviewValidationCenter" class="validation-center" aria-live="polite"></section>
+        <section id="dppHierarchy" class="dpp-hierarchy" hidden aria-label="Connected DPP hierarchy"></section>
 
         <section id="systemGraph" class="review-panel system-graph-panel">
           <div class="section-heading">
@@ -329,6 +331,18 @@
       </section>
     </main>
 
-    <script src="src/app.js?v=20260729-5"></script>
+    <dialog id="dppDialog" aria-labelledby="dppTitle">
+      <h2 id="dppTitle">Connect DPP</h2>
+      <p>Choose the supplier output and the quantity required by the receiving activity. The supplier inventory is scaled from that output; its original study context is retained.</p>
+      <label>Supplier product output<select id="dppOutput"></select></label>
+      <label>Required quantity<input id="dppAmount" type="number" min="0" step="any" /></label>
+      <p>Unit: <strong id="dppUnit"></strong></p>
+      <p id="dppPreview"></p>
+      <details><summary>Source study assumptions and limitations</summary><p id="dppContext"></p></details>
+      <p id="dppError" role="alert"></p>
+      <div class="dpp-actions"><button id="dppCancel" class="button quiet" type="button">Cancel</button><button id="dppConfirm" class="button primary" type="button">Connect selected output</button></div>
+    </dialog>
+    <script src="src/dpp-connections.js?v=20261012-dpp1"></script>
+    <script src="src/app.js?v=20261012-dpp1"></script>
   </body>
 </html>

@@ -56,3 +56,44 @@ The builder preserves the implemented PEFDPP classes, predicates, units, geograp
 - the browser result is a static BONSAI GWP100 calculation only; EF elementary-flow characterisation and the full EF LCIA result set are not calculated.
 
 These gaps require an ontology-owner and product-scope decision. The app does not invent values for them.
+# Connecting and nesting DPPs
+
+In **Activities**, expand a product input and choose **Connect DPP**. Select a
+Turtle or calculator JSON-LD file, select its determining product output, and
+enter the quantity required in that output's unit. The preview shows the
+contributing activities, source assumptions and background-data readiness.
+Only the inventory that supplies the selected output is attached. A connected
+source can itself contain connected DPPs, and a shared supplier is stored once.
+
+Calculations follow the ordinary supplying-output → receiving-input FlowLinks:
+supplier scale = receiving activity scale × required input / supplier output.
+The parent study stays authoritative; source functional-unit quantities and
+durations are retained as provenance and are not multiplied into its inventory.
+Unresolved backgrounds and elementary emissions remain visible and prevent a
+complete climate result. Connecting a passport does not establish physical
+compatibility, background quality, allocation validity or PEF compliance.
+
+**Replace DPP** previews another supplier file. **Disconnect DPP** restores the
+previous input and removes imported activities no longer needed elsewhere.
+Quantity changes propagate through nested connections. Exports preserve source
+identities, goal/scope snapshots, notes, activity types and provider references.
+The local schema extension is [ontology/dpp-connections.ttl](ontology/dpp-connections.ttl);
+it declares FlowLinks and the DPP provenance terms used by this application.
+
+Files must use the app's explicit Flow/Activity inventory shape and inline OM
+measures. Legacy workshop JSON and remote JSON-LD contexts are not supported.
+Files with incomplete structure, cycles, duplicate identifiers or conflicting
+inventory versions are rejected with an explanation; the current inventory is
+left intact. Supplier output units never silently convert into the receiving
+input's old unit. A different output unit requires a new quantity in the preview.
+
+Run the dependency-free inventory regression suite with Node 24:
+
+```sh
+node --test tests/*.test.cjs
+```
+
+The suite covers batch output scaling, nested composition, shared providers,
+reversible replacement/disconnection, invalid inputs, URI conflicts, source
+contexts, Turtle/JSON-LD cycles and project case regressions when those local
+files are available. GitHub Actions runs it on pushes and pull requests.

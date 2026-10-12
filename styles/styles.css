@@ -1936,3 +1936,41 @@ a:focus-visible { outline: 2px solid var(--cerise-blue); outline-offset: 2px; }
 #panelActivities .internal-link-edge b { font-size: 16px; font-weight: 500; }
 #panelActivities .internal-link-edge em { padding: 3px 6px; border-radius: 99px; background: #ebeaff; font-size: 9px; font-style: normal; font-weight: 850; white-space: nowrap; }
 #panelActivities .step-footer { margin-top: 2px; }
+:root { --dpp-accent: #234ae5; }
+.dpp-source-card { display: grid; gap: .65rem; margin-top: 1rem; padding: 1rem; border: 1px solid #c6d4fb; border-radius: 12px; background: #f1f5ff; overflow-wrap: anywhere; }
+.dpp-source-card details p { font-size: .9rem; }
+.dpp-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: .5rem; }
+.dpp-hierarchy { padding: 1.25rem; margin-top: 1.25rem; background: #f1f5ff; border: 1px solid #c6d4fb; border-radius: 12px; overflow-wrap: anywhere; }
+.dpp-hierarchy li { margin: .8rem 0; }
+#dppDialog { box-sizing: border-box; width: min(640px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); padding: 1.5rem; border: 1px solid #c6d4fb; border-radius: 16px; box-shadow: 0 20px 80px #0004; overflow: auto; color: #17213b; }
+#dppDialog::backdrop { background: #10183088; }
+#dppDialog h2 { font-size: 1.35rem; overflow-wrap: anywhere; }
+#dppDialog label { display: grid; gap: .4rem; margin: 1rem 0; }
+#dppDialog input, #dppDialog select { width: 100%; box-sizing: border-box; min-height: 42px; }
+#dppContext { white-space: pre-wrap; overflow-wrap: anywhere; }
+#dppError { color: #a91b1b; font-weight: 600; }
+#dppDialog [disabled] { opacity: .5; cursor: not-allowed; }
+@media (max-width: 960px) {
+  body { min-width: 0; }
+  .workspace { width: calc(100% - 24px); }
+  .topbar { position: static; flex-wrap: wrap; gap: 10px; padding: 10px 12px; }
+  .topbar-actions { flex-wrap: wrap; }
+  .steps { position: static; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .step-button { min-width: 0; }
+  .step-button strong { white-space: normal; }
+  .dataset-layout, .study-layout, .outcome-cards, .export-format-cards,
+  #panelActivities .activity-workspace, #panelActivities .activity-fields,
+  #panelActivities .internal-link-preview, .network-connection,
+  .source-link-selectors, .compact-conversion, .flow-definition, .flow-quantity,
+  .reference-flow-row, #panelStudy .category-grid { grid-template-columns: minmax(0, 1fr); }
+  .activity-sidebar { position: static; max-height: 280px; overflow: auto; }
+  .network-column { min-width: 0; }
+  .contribution-row { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .section-heading, #panelActivities .selected-activity-heading,
+  #panelActivities .workbench-section-heading { flex-wrap: wrap; }
+  .form-panel, .review-panel, #panelActivities .activity-editor,
+  #panelActivities #flowsList, #panelActivities .workbench-section-heading { padding: 16px; }
+  input, select, textarea { min-width: 0; max-width: 100%; }
+  .flow-summary { min-width: 0; }
+  .flow-summary strong, .dpp-hierarchy, .edge-flow strong { overflow-wrap: anywhere; }
+}

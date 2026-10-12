@@ -18,6 +18,7 @@ const NS = {
 
 const FLOW_CLASSES = ["ProductFlow", "WasteFlow", "ElementaryFlow"];
 const DEFAULT_NAMESPACE = "https://w3id.org/cerise-see/datasets/simple-product#";
+let uidSequence = 0;
 const KG_URI = `${NS.unit}Kilogram`;
 const CN_URI = `${NS.geography}CN`;
 const GLO_URI = `${NS.geography}GLO`;
@@ -32,6 +33,7 @@ const LIFE_CYCLE_STAGES = [
 ].map(([local, label]) => ({ uri: `${NS.productSystem}${local}`, label }));
 
 const state = {
+  connectedDpps: [],
   exportMode: "json",
   activeStep: "dataset",
   activeActivityId: "act-component",
@@ -196,7 +198,7 @@ const state = {
 const el = (id) => document.getElementById(id);
 
 function uid(prefix) {
-  return `${prefix}-${Math.random().toString(16).slice(2, 8)}`;
+  return `${prefix}-${++uidSequence}-${Math.random().toString(16).slice(2, 8)}`;
 }
 
 function escapeHtml(value) {
@@ -1010,27 +1012,58 @@ function predicateToken(prefixes, namespace, local) {
 function ttlStatements(text) {
   const statements = [];
   let buffer = "";
-  text.split(/\r?\n/).forEach((rawLine) => {
-    const line = stripTtlComment(rawLine).trim();
-    if (!line || line.startsWith("@prefix")) return;
-    buffer = `${buffer} ${line}`.trim();
-    if (line.endsWith(".")) {
-      statements.push(buffer.replace(/\s+/g, " "));
+  let quoted = false, iriOpen = false, escaped = false, comment = false, depth = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+    if (comment) { if (char === "\n") { comment = false; buffer += " "; } continue; }
+    if (escaped) { buffer += char; escaped = false; continue; }
+    if (quoted && char === "\\") { buffer += char; escaped = true; continue; }
+    if (!iriOpen && char === '"') quoted = !quoted;
+    if (!quoted) {
+      if (char === "<") iriOpen = true;
+      else if (char === ">") iriOpen = false;
+      else if (!iriOpen && char === "#") { comment = true; continue; }
+      else if (!iriOpen && char === "[") depth += 1;
+      else if (!iriOpen && char === "]") { depth -= 1; if (depth < 0) throw new Error("Invalid Turtle: unexpected closing bracket."); }
+    }
+    buffer += char;
+    if (char === "." && !quoted && !iriOpen && depth === 0 && (!text[i + 1] || /\s|#/.test(text[i + 1]))) {
+      const statement = buffer.trim();
+      if (!statement.startsWith("@prefix")) statements.push(statement);
       buffer = "";
     }
-  });
+  }
+  if (quoted || iriOpen || depth || buffer.trim()) throw new Error("Invalid or incomplete Turtle. Check closing quotes, brackets and statement dots.");
   return statements;
 }
 
 function predicateValue(body, predicate) {
-  const escaped = predicate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = body.match(new RegExp(`(?:^|;\\s*)${escaped}\\s+([\\s\\S]*?)(?:\\s+;|\\s*$)`));
-  return match ? match[1].trim() : "";
+  let quoted = false, iriOpen = false, escaped = false, depth = 0, start = 0;
+  const parts = [];
+  for (let i = 0; i < body.length; i += 1) {
+    const char = body[i];
+    if (escaped) { escaped = false; continue; }
+    if (quoted && char === "\\") { escaped = true; continue; }
+    if (!iriOpen && char === '"') quoted = !quoted;
+    if (!quoted) {
+      if (char === "<") iriOpen = true;
+      else if (char === ">") iriOpen = false;
+      else if (!iriOpen && char === "[") depth += 1;
+      else if (!iriOpen && char === "]") depth -= 1;
+      else if (!iriOpen && !depth && char === ";") { parts.push(body.slice(start, i).trim()); start = i + 1; }
+    }
+  }
+  parts.push(body.slice(start).trim());
+  const aliases = { ...NS, act: NS.activity, prs: NS.productSystem, ps: NS.pefStudy, dpp: DPP_NS };
+  const expected = expandToken(predicate, aliases);
+  const part = parts.find((value) => expandToken(value.match(/^(\S+)/)?.[1], aliases) === expected);
+  return part ? part.slice(part.match(/^(\S+)/)[1].length).trim() : "";
 }
 
 function literalValue(value) {
-  const match = String(value || "").match(/"((?:\\"|[^"])*)"/);
-  return match ? match[1].replaceAll('\\"', '"').replaceAll("\\n", "\n") : "";
+  const match = String(value || "").match(/"(?:\\.|[^"\\])*"/);
+  if (!match) return "";
+  try { return JSON.parse(match[0]); } catch { throw new Error("Unsupported or invalid Turtle string escape."); }
 }
 
 function tokenList(value) {
@@ -1056,6 +1089,30 @@ function parseInlineMeasure(body, predicate, prefixes) {
 
 function parseTtlSubset(text) {
   const prefixes = parsePrefixes(text);
+  const canonicalBody = (body) => {
+    // Normalize predicate tokens outside strings, allowing compact and full-IRI
+    // predicates in the same file. Objects retain their original identities.
+    let quoted = false, escaped = false, iriOpen = false, start = true, result = "";
+    for (let i = 0; i < body.length; i += 1) {
+      const ch = body[i];
+      if (escaped) { result += ch; escaped = false; continue; }
+      if (quoted && ch === "\\") { result += ch; escaped = true; continue; }
+      if (!iriOpen && ch === '"') quoted = !quoted;
+      if (!quoted && !iriOpen && start && !/\s/.test(ch)) {
+        const token = body.slice(i).match(/^\S+/)?.[0] || "";
+        if (token && token !== "a" && token !== "[") {
+          const uri = expandToken(token, prefixes);
+          const entry = Object.entries(prefixes).find(([, ns]) => uri.startsWith(ns));
+          const normalized = entry ? `${entry[0]}:${uri.slice(entry[1].length)}` : token;
+          result += normalized; i += token.length - 1; start = false; continue;
+        }
+        start = false;
+      }
+      if (!quoted) { if (ch === "<") iriOpen = true; else if (ch === ">") iriOpen = false; else if (!iriOpen && (ch === ";" || ch === "[")) start = true; }
+      result += ch;
+    }
+    return result;
+  };
   const statements = ttlStatements(text);
   const nodes = new Map();
   const p = (ns, local) => predicateToken(prefixes, ns, local);
@@ -1069,8 +1126,9 @@ function parseTtlSubset(text) {
     const match = statement.match(/^(\S+)\s+([\s\S]*?)\s*\.$/);
     if (!match) return;
     const rawSubject = match[1];
-    const body = match[2];
     const subject = expandToken(rawSubject, prefixes);
+    const nextBody = canonicalBody(match[2]);
+    const body = nodes.has(subject) ? `${nodes.get(subject).body.replace(/\s*;?\s*$/, "")} ; ${nextBody}` : nextBody;
     nodes.set(subject, {
       subject, rawSubject, body,
       type: predicateValue(body, "a"),
@@ -1091,6 +1149,7 @@ function parseTtlSubset(text) {
     const foundClass = FLOW_CLASSES.find((name) => classUri(node, `${NS.flow}${name}`));
     if (foundClass) registry.set(node.subject, {
       id: uid("ft"), uri: node.subject, label: node.label || localName(node.subject), className: foundClass,
+      sourcedFromUri: expandToken(predicateValue(node.body, p(NS.flow, "sourcedFrom")), prefixes),
       ontologyManaged: foundClass === "ElementaryFlow" && node.subject.startsWith(NS.elementary), preferredUnitUri: "", search: ""
     });
   });
@@ -1159,18 +1218,22 @@ function parseTtlSubset(text) {
       const providerActivityUri = expandToken(predicateValue(flowNode.body, p(NS.dcterms, "source")), prefixes);
       const linkedOutputFlowUri = flowLinksByInput.get(flowNode.subject) || "";
       return {
-        id: localName(flowNode.subject), uri: flowNode.subject,
+        id: uid("flow"), uri: flowNode.subject,
         label: literalValue(predicateValue(flowNode.body, p(NS.flow, "contextualLabel"))) || registry.get(flowTypeUri)?.label || localName(flowNode.subject),
         direction: predicateValue(flowNode.body, p(NS.activity, "outputOf")) ? "output" : "input",
         flowTypeUri, amount: measure.amount || "1", unitUri: measure.unitUri,
         determining: Boolean(determiningUri && flowNode.subject === determiningUri),
         sourceMode: linkedOutputFlowUri ? "activity" : providerActivityUri.startsWith(NS.bonsai) ? "bonsai" : providerActivityUri ? "external" : "",
         linkedOutputFlowUri,
-        providerActivityUri
+        providerActivityUri,
+        note: literalValue(predicateValue(flowNode.body, p(NS.dcterms, "description")))
       };
     });
     return {
-      id: localName(node.subject), uri: node.subject,
+      id: uid("act"), uri: node.subject,
+      activityTypeUri: typeUri,
+      activityTypeLabel: activityTypes.get(typeUri) || localName(typeUri),
+      note: literalValue(predicateValue(node.body, p(NS.dcterms, "description"))),
       name: node.label || activityTypes.get(typeUri) || localName(node.subject),
       activityLinkUri: activityLink?.uri || `${namespaceOf(datasetNode.subject)}activity-link-${slug(localName(node.subject))}`,
       lifeCycleStageUri: activityLink?.stageUri || "",
@@ -1266,10 +1329,12 @@ function parseTtlSubset(text) {
     { title: "Activities and flows imported", detail: `${activities.length} activities and ${report.stats.flows} flows.` }
   );
 
+  const connectedDpps = dppParseMetadata(nodes, prefixes, datasetNode.subject, activities);
   return {
     productSystem: {
       uri: productSystemNode?.subject || `${namespaceOf(datasetNode.subject)}product-system`,
-      name: productSystemNode?.label || "Product system"
+      name: productSystemNode?.label || "Product system",
+      systemDiagramUri: productSystemNode ? expandToken(predicateValue(productSystemNode.body, p(NS.productSystem, "hasSystemDiagram")), prefixes) : ""
     },
     dataset: {
       uri: datasetNode.subject,
@@ -1277,7 +1342,7 @@ function parseTtlSubset(text) {
       title: datasetNode.title || localName(datasetNode.subject),
       type: datasetType, complianceLevel: compliance, activities
     },
-    flowTypes: [...registry.values()], study, report
+    flowTypes: [...registry.values()], study, report, connectedDpps
   };
 }
 
@@ -1300,6 +1365,7 @@ function render() {
   renderGraph();
   renderCompatibility();
   renderExport();
+  dppRenderHierarchy();
 }
 
 function renderStudy() {
@@ -1512,8 +1578,8 @@ function renderFlows() {
     return `<section class="flow-source-picker"><h4>${sourceHeading}</h4>
       <select aria-label="${sourceHeading}" data-product-source="${flow.id}"><option value="" ${sourceValue ? "" : "selected"}>${unresolvedLabel}</option><option value="bonsai" ${sourceValue === "bonsai" ? "selected" : ""}>${bonsaiLabel}</option>${flow.direction === "input" && flowType.className === "ProductFlow" ? `<option value="activity" ${sourceValue === "activity" ? "selected" : ""}>Produced by another activity in this product system</option>` : ""}<option value="external" ${sourceValue === "external" ? "selected" : ""}>External product or DPP</option></select>
       ${flow.direction === "output" && flowType.className === "ProductFlow" && !flow.sourceMode ? `<p class="method-note">This product is supplied by the current activity. A BONSAI link is optional.</p>` : ""}
-      ${flow.sourceMode === "activity" ? `<p class="method-note">This input is supplied by an output from another activity.</p><label class="connected-output-selector">Connected output<select data-source-output="${flow.id}"><option value="">Select an activity output</option>${outputGroups.map(({ providerActivity, outputs }) => `<optgroup label="${escapeHtml(providerActivity.name || "Untitled activity")}">${outputs.map(({ flow: providerFlow }) => `<option value="${escapeHtml(flowUri(providerFlow))}" ${flowUri(providerFlow) === flow.linkedOutputFlowUri ? "selected" : ""}>${escapeHtml(providerFlow.label || "Unnamed output")} · ${escapeHtml(providerFlow.amount)} ${escapeHtml(unitLabel(providerFlow.unitUri))}</option>`).join("")}</optgroup>`).join("")}</select></label>${availableOutputs.length ? "" : `<p class="inline-error">Add a product output to another activity before creating this connection.</p>`}${linkedOutput ? `<div class="internal-link-preview"><div><small>Supplier</small><strong>${escapeHtml(linkedOutput.activity.name)}</strong></div><div class="internal-link-edge"><span>${escapeHtml(linkedOutput.flow.label)} · ${escapeHtml(linkedOutput.flow.amount)} ${escapeHtml(unitLabel(linkedOutput.flow.unitUri))}</span><b>→</b><em>Internal connection</em><b>→</b><span>${escapeHtml(flow.label || "This input")}</span></div><div><small>Receiver</small><strong>${escapeHtml(activity.name)}</strong></div></div>` : ""}<details class="ontology-details compact-ontology"><summary>Ontology details</summary><p>ProductSystem → hasFlowLink → FlowLink. The supplying output and receiving input remain separate Flow instances.</p></details>` : ""}
-      ${flow.sourceMode === "external" ? `<div class="source-link-card"><strong>External product or DPP</strong><span>Reference-only connection. Preserve the selected external FlowType URI when importing a dataset.</span></div>` : ""}
+      ${flow.sourceMode === "activity" ? `<p class="method-note">This input is supplied by an output from another activity.</p><label class="connected-output-selector">Connected output<select data-source-output="${flow.id}" ${flow.connectedDppUri ? "disabled" : ""}><option value="">Select an activity output</option>${outputGroups.map(({ providerActivity, outputs }) => `<optgroup label="${escapeHtml(providerActivity.name || "Untitled activity")}">${outputs.map(({ flow: providerFlow }) => `<option value="${escapeHtml(flowUri(providerFlow))}" ${flowUri(providerFlow) === flow.linkedOutputFlowUri ? "selected" : ""}>${escapeHtml(providerFlow.label || "Unnamed output")} · ${escapeHtml(providerFlow.amount)} ${escapeHtml(unitLabel(providerFlow.unitUri))}</option>`).join("")}</optgroup>`).join("")}</select></label>${availableOutputs.length ? "" : `<p class="inline-error">Add a product output to another activity before creating this connection.</p>`}${linkedOutput ? `<div class="internal-link-preview"><div><small>Supplier</small><strong>${escapeHtml(linkedOutput.activity.name)}</strong></div><div class="internal-link-edge"><span>${escapeHtml(linkedOutput.flow.label)} · ${escapeHtml(linkedOutput.flow.amount)} ${escapeHtml(unitLabel(linkedOutput.flow.unitUri))}</span><b>→</b><em>Internal connection</em><b>→</b><span>${escapeHtml(flow.label || "This input")}</span></div><div><small>Receiver</small><strong>${escapeHtml(activity.name)}</strong></div></div>` : ""}<details class="ontology-details compact-ontology"><summary>Ontology details</summary><p>ProductSystem → hasFlowLink → FlowLink. The supplying output and receiving input remain separate Flow instances.</p></details>` : ""}
+      ${dppSourceCard(flow)}
       ${flow.sourceMode === "bonsai" ? `<div class="bonsai-controls single-combobox"><label>Select BONSAI background dataset<input role="combobox" aria-expanded="${state.bonsai.openFlowId === flow.id}" type="search" value="${escapeHtml(flow.bonsaiSearch || displayBonsaiLabel(providerEntry?.label) || "")}" placeholder="Search BONSAI process or code" data-bonsai-search-flow="${flow.id}" autocomplete="off" /></label>
       ${state.bonsai.openFlowId === flow.id ? `<div class="ef-results ef-dropdown" role="listbox">${state.bonsai.loading ? `<span class="picker-note">Loading BONSAI catalogue…</span>` : state.bonsai.error ? `<span class="inline-error">${escapeHtml(state.bonsai.error)}</span>` : providerChoices.map((entry) => `<button type="button" role="option" data-select-bonsai-flow="${flow.id}" data-bonsai-code="${escapeHtml(entry.code)}"><strong>${escapeHtml(displayBonsaiLabel(entry.label))}</strong><span>${escapeHtml(entry.code)} · ${entry.offerings.length} record${entry.offerings.length === 1 ? "" : "s"}</span></button>`).join("") || `<span class="picker-note">${bonsaiQueryReady ? "No matching BONSAI datasets." : "Type at least 2 characters to search."}</span>`}</div>` : ""}
       ${providerEntry ? `<div class="bonsai-selection"><span><strong>${escapeHtml(displayBonsaiLabel(providerEntry.label))}</strong><small>${escapeHtml(providerEntry.code)}</small></span><label>Region<select data-bonsai-region="${flow.id}"><option value="">Select region</option>${providerRegions.map((region) => `<option value="${escapeHtml(region)}" ${region === flow.backgroundProvider?.region ? "selected" : ""}>${escapeHtml(region)}</option>`).join("")}</select></label><span class="locked-reference-unit"><small>Reference unit</small><strong>${escapeHtml(providerOffering?.referenceUnit || "Select region")}</strong></span></div>` : ""}
@@ -1820,8 +1886,8 @@ function exportGraph() {
     [`${NS.productSystem}flowFrom`]: { "@id": link.flowFrom },
     [`${NS.productSystem}toFlow`]: { "@id": link.toFlow }
   }));
-  state.flowTypes.filter((item) => !item.ontologyManaged).forEach((item) => graph.push({
-    "@id": item.uri, "@type": `${NS.flow}${item.className}`, [`${NS.flow}sourcedFrom`]: { "@id": datasetUri }, [`${NS.rdfs}label`]: english(item.label)
+  state.flowTypes.filter(dppFlowTypeNeedsExport).forEach((item) => graph.push({
+    "@id": item.uri, "@type": `${NS.flow}${item.className}`, [`${NS.flow}sourcedFrom`]: { "@id": item.sourcedFromUri || datasetUri }, [`${NS.rdfs}label`]: english(item.label)
   }));
   state.dataset.activities.forEach((activity) => {
     const activityUri = activity.uri || `${namespace}${slug(activity.id)}`;
@@ -1835,16 +1901,22 @@ function exportGraph() {
     graph.push({
       "@id": activityUri, "@type": `${NS.activity}Activity`,
       [`${NS.rdfs}label`]: english(activity.name),
+      ...(activity.activityTypeUri ? { [`${NS.activity}hasActivityType`]: { "@id": activity.activityTypeUri } } : {}),
+      ...(activity.sourceDppUri ? { [`${DPP_NS}sourceDPP`]: { "@id": activity.sourceDppUri } } : {}),
+      ...(activity.note ? { [`${NS.dcterms}description`]: activity.note } : {}),
       [`${NS.activity}isCompanySpecific`]: activity.companySpecific, [`${NS.activity}hasGeography`]: { "@id": activity.geographyUri },
       ...(determining ? { [`${NS.activity}hasDeterminingFlow`]: { "@id": determining.uri || `${namespace}${slug(determining.id)}` } } : {})
     });
     activity.flows.forEach((flow) => {
-      const providerActivityUri = selectedBonsaiOffering(flow)?.activityUri;
+      const providerActivityUri = selectedBonsaiOffering(flow)?.activityUri || flow.providerActivityUri;
       graph.push({
       "@id": flow.uri || `${namespace}${slug(flow.id)}`, "@type": `${NS.flow}Flow`, [`${NS.flow}hasFlowType`]: { "@id": flow.flowTypeUri },
       [`${NS.flow}contextualLabel`]: english(flow.label),
       [flow.direction === "output" ? `${NS.activity}outputOf` : `${NS.activity}inputOf`]: { "@id": activityUri },
       ...(providerActivityUri ? { [`${NS.dcterms}source`]: { "@id": providerActivityUri } } : {}),
+      ...(flow.connectedDppUri ? { [`${DPP_NS}connectedDPP`]: { "@id": flow.connectedDppUri } } : {}),
+      ...(flow.dppPrevious ? { [`${DPP_NS}previousInput`]: JSON.stringify(flow.dppPrevious) } : {}),
+      ...(flow.note ? { [`${NS.dcterms}description`]: flow.note } : {}),
       [`${NS.flow}hasMeasure`]: {
         "@type": `${NS.om}Measure`,
         [`${NS.om}hasUnit`]: { "@id": flow.unitUri },
@@ -1853,6 +1925,12 @@ function exportGraph() {
     });
     });
   });
+  state.dataset.activities.filter((activity) => activity.activityTypeUri).forEach((activity) => {
+    if (!graph.some((node) => node["@id"] === activity.activityTypeUri)) graph.push({ "@id": activity.activityTypeUri, "@type": `${NS.activity}ActivityType`, [`${NS.rdfs}label`]: activity.activityTypeLabel || activity.name });
+  });
+  const systemNode = graph.find((node) => node["@id"] === state.productSystem.uri);
+  if (state.productSystem.systemDiagramUri) systemNode[`${NS.productSystem}hasSystemDiagram`] = { "@id": state.productSystem.systemDiagramUri };
+  graph.push(...dppMetadataGraph());
   return graph;
 }
 
@@ -1906,8 +1984,8 @@ function toTtl() {
 
   links.forEach((link) => lines.push(`${iri(link.uri)} a prs:FlowLink ;`, `  prs:flowFrom ${iri(link.flowFrom)} ;`, `  prs:toFlow ${iri(link.toFlow)} .`, ""));
 
-  state.flowTypes.filter((item) => !item.ontologyManaged).forEach((item) => lines.push(
-    `${iri(item.uri)} a flow:${item.className} ;`, `  flow:sourcedFrom ${iri(datasetUri)} ;`, `  rdfs:label "${escapeTtl(item.label)}"@en .`, ""
+  state.flowTypes.filter(dppFlowTypeNeedsExport).forEach((item) => lines.push(
+    `${iri(item.uri)} a flow:${item.className} ;`, `  flow:sourcedFrom ${iri(item.sourcedFromUri || datasetUri)} ;`, `  rdfs:label "${escapeTtl(item.label)}"@en .`, ""
   ));
   state.dataset.activities.forEach((activity) => {
     const activityUri = activity.uri || `${namespace}${slug(activity.id)}`;
@@ -1920,7 +1998,7 @@ function toTtl() {
     if (determining) lines.push(`  act:hasDeterminingFlow ${iri(determining.uri || `${namespace}${slug(determining.id)}`)} .`);
     lines.push("");
     activity.flows.forEach((flow) => {
-      const providerActivityUri = selectedBonsaiOffering(flow)?.activityUri;
+      const providerActivityUri = selectedBonsaiOffering(flow)?.activityUri || flow.providerActivityUri;
       lines.push(
         `${iri(flow.uri || `${namespace}${slug(flow.id)}`)} a flow:Flow ;`, `  flow:hasFlowType ${iri(flow.flowTypeUri)} ;`,
         `  flow:contextualLabel "${escapeTtl(flow.label)}"@en ;`, `  ${flow.direction === "output" ? "act:outputOf" : "act:inputOf"} ${iri(activityUri)} ;`,
@@ -1929,6 +2007,21 @@ function toTtl() {
       );
     });
   });
+  // Additional statements preserve provenance without changing the inventory links.
+  state.dataset.activities.forEach((activity) => {
+    if (activity.activityTypeUri) {
+      lines.push(`${iri(activity.uri)} act:hasActivityType ${iri(activity.activityTypeUri)} .`, `${iri(activity.activityTypeUri)} a act:ActivityType ; rdfs:label "${escapeTtl(activity.activityTypeLabel || activity.name)}" .`);
+    }
+    if (activity.sourceDppUri) lines.push(`${iri(activity.uri)} ${iri(`${DPP_NS}sourceDPP`)} ${iri(activity.sourceDppUri)} .`);
+    if (activity.note) lines.push(`${iri(activity.uri)} dcterms:description "${escapeTtl(activity.note)}" .`);
+    activity.flows.forEach((flow) => {
+      if (flow.connectedDppUri) lines.push(`${iri(flow.uri)} ${iri(`${DPP_NS}connectedDPP`)} ${iri(flow.connectedDppUri)} .`);
+      if (flow.dppPrevious) lines.push(`${iri(flow.uri)} ${iri(`${DPP_NS}previousInput`)} "${escapeTtl(JSON.stringify(flow.dppPrevious))}" .`);
+      if (flow.note) lines.push(`${iri(flow.uri)} dcterms:description "${escapeTtl(flow.note)}" .`);
+    });
+  });
+  if (state.productSystem.systemDiagramUri) lines.push(`${iri(state.productSystem.uri)} prs:hasSystemDiagram ${iri(state.productSystem.systemDiagramUri)} .`);
+  lines.push(dppMetadataTtl());
   return lines.join("\n");
 }
 
@@ -1940,6 +2033,7 @@ function renderExport() {
 
 function refreshDerivedViews() {
   renderDatasetNav(); renderActivityNav(); renderSummary(); renderGraph(); renderCompatibility(); renderExport();
+  dppRenderHierarchy();
 }
 
 function closeDisclosures() {
@@ -1949,12 +2043,13 @@ function closeDisclosures() {
 }
 
 function applyImportedTtl(text, source) {
-  const imported = parseTtlSubset(text);
+  const imported = parseTtlSubset(dppReadText(text));
   imported.report.source = source;
   state.dataset = imported.dataset;
   state.productSystem = imported.productSystem;
   state.flowTypes = imported.flowTypes;
   state.study = imported.study;
+  state.connectedDpps = imported.connectedDpps;
   state.compatReport = imported.report;
   reconcileImportedBonsaiSources();
   state.activeActivityId = state.dataset.activities[0]?.id || "";
@@ -2032,6 +2127,7 @@ function addFlow(direction) {
 }
 
 function loadExample() {
+  state.connectedDpps = [];
   const ns = DEFAULT_NAMESPACE;
   state.productSystem = { uri: `${ns}product-system`, name: "Steel product system" };
   state.flowTypes = [
@@ -2077,6 +2173,7 @@ function resetDataset() {
   state.productSystem = { uri: `${ns}product-system`, name: "Untitled product system" };
   state.dataset = { uri: `${ns}untitled-lci-dataset`, namespace: ns, title: "Untitled LCI dataset", type: "DPP", complianceLevel: "EFCompliant", activities: [] };
   state.flowTypes = [];
+  state.connectedDpps = [];
   state.study = defaultStudy(ns);
   state.activeActivityId = ""; state.compatReport = null; state.activeStep = "dataset"; state.exportMode = "json";
   render(); closeDisclosures();
@@ -2227,9 +2324,11 @@ function handleEditorEvent(event) {
   } else if (target.dataset.productSource) {
     const flow = findFlow(target.dataset.productSource);
     if (flow) {
+      if (flow.connectedDppUri) dppDisconnect(flow.id);
       flow.sourceMode = ["bonsai", "external", "activity"].includes(target.value) ? target.value : "";
       flow.linkedOutputFlowUri = "";
       flow.sourceActivityId = "";
+      flow.providerActivityUri = "";
       if (flow.sourceMode !== "bonsai") { flow.backgroundProvider = null; flow.bonsaiSearch = ""; state.bonsai.openFlowId = ""; }
       if (flow.sourceMode === "bonsai") loadBonsaiIndex();
       removeUnusedFlowTypes();
@@ -2248,6 +2347,7 @@ function handleEditorEvent(event) {
     if (flow && provider) {
       flow.sourceMode = "activity";
       flow.sourceActivityId = provider.activity.id;
+      flow.providerActivityUri = ""; flow.backgroundProvider = null;
       flow.linkedOutputFlowUri = target.value;
       flow.flowTypeUri = provider.flow.flowTypeUri;
       flow.label = provider.flow.label;
@@ -2348,9 +2448,9 @@ document.addEventListener("click", (event) => {
     if (!window.confirm("Remove this activity and its flows?")) return;
     state.dataset.activities.find((item) => item.id === target.dataset.removeActivity)?.flows.forEach(unlinkInputsFromOutput);
     state.dataset.activities = state.dataset.activities.filter((item) => item.id !== target.dataset.removeActivity);
-    removeUnusedFlowTypes(); state.activeActivityId = state.dataset.activities[0]?.id || ""; render();
+    dppPrune(state); removeUnusedFlowTypes(); state.activeActivityId = state.dataset.activities[0]?.id || ""; render();
   }
-  if (target.dataset.removeFlow) { const activity = getActiveActivity(); const flow = activity?.flows.find((item) => item.id === target.dataset.removeFlow); unlinkInputsFromOutput(flow); if (activity) activity.flows = activity.flows.filter((item) => item.id !== target.dataset.removeFlow); removeUnusedFlowTypes(); render(); }
+  if (target.dataset.removeFlow) { const activity = getActiveActivity(); const flow = activity?.flows.find((item) => item.id === target.dataset.removeFlow); unlinkInputsFromOutput(flow); if (activity) activity.flows = activity.flows.filter((item) => item.id !== target.dataset.removeFlow); dppPrune(state); removeUnusedFlowTypes(); render(); }
   if (target.dataset.removeFlowtype) { state.flowTypes = state.flowTypes.filter((item) => item.id !== target.dataset.removeFlowtype); render(); }
   if (target.dataset.selectEf) {
     const item = state.flowTypes.find((entry) => entry.id === target.dataset.selectEf);
@@ -2392,6 +2492,7 @@ el("ttlUpload").addEventListener("change", (event) => {
   loadUploadedTtl(file);
 });
 
+initDppConnections();
 render();
 loadOntologyOptions();
 loadStudyOptions();

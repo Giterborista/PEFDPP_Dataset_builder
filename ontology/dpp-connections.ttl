@@ -1,0 +1,23 @@
+@prefix dpp: <https://w3id.org/cerise-see/dpp-connections#> .
+@prefix prs: <https://w3id.org/mintjesba/pefdpp/product-system#> .
+@prefix act: <https://w3id.org/mintjesba/pefdpp/activity#> .
+@prefix flow: <https://w3id.org/mintjesba/pefdpp/flow#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+dpp: a owl:Ontology ; rdfs:label "CE-RISE calculator DPP connection extension" ;
+  rdfs:comment "Local extension to the published PEFDPP ontology. Source passports are provenance records; ordinary FlowLinks compose their inventories. This does not assert PEF compliance." .
+prs:FlowLink a owl:Class ; rdfs:label "Connection from a supplying output to a receiving input" .
+prs:hasFlowLink a owl:ObjectProperty ; rdfs:domain prs:ProductSystem ; rdfs:range prs:FlowLink .
+prs:flowFrom a owl:ObjectProperty ; rdfs:domain prs:FlowLink ; rdfs:range flow:Flow .
+prs:toFlow a owl:ObjectProperty ; rdfs:domain prs:FlowLink ; rdfs:range flow:Flow .
+dpp:ConnectedDPP a owl:Class ; rdfs:label "Source DPP provenance" .
+dpp:originalDataset a owl:ObjectProperty ; rdfs:domain dpp:ConnectedDPP ; rdfs:comment "Original supplier dataset identity. The original dataset need not be restated as a second root LCIDataset." .
+dpp:originalProductSystem a owl:ObjectProperty ; rdfs:domain dpp:ConnectedDPP ; rdfs:range prs:ProductSystem .
+dpp:referenceOutput a owl:ObjectProperty ; rdfs:domain dpp:ConnectedDPP ; rdfs:range flow:Flow .
+dpp:sourceDPP a owl:ObjectProperty ; rdfs:domain act:Activity ; rdfs:comment "Original dataset identity owning an imported activity." .
+dpp:connectedDPP a owl:ObjectProperty ; rdfs:domain flow:Flow ; rdfs:comment "Original dataset identity connected to a receiving product input." .
+dpp:fileName a owl:DatatypeProperty ; rdfs:domain dpp:ConnectedDPP ; rdfs:range xsd:string .
+dpp:studyContext a owl:DatatypeProperty ; rdfs:domain dpp:ConnectedDPP ; rdfs:range xsd:string ; rdfs:comment "JSON snapshot of the source study goal, scope, functional unit and boundary. It is provenance, not an additional calculation multiplier." .
+dpp:previousInput a owl:DatatypeProperty ; rdfs:domain flow:Flow ; rdfs:range xsd:string ; rdfs:comment "JSON snapshot of the receiving input before attachment, to support reversible disconnection." .
