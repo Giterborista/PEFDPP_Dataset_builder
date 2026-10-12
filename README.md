@@ -58,7 +58,9 @@ The builder preserves the implemented PEFDPP classes, predicates, units, geograp
 These gaps require an ontology-owner and product-scope decision. The app does not invent values for them.
 # Connecting and nesting DPPs
 
-In **Activities**, expand a product input and choose **Connect DPP**. Select a
+In **Activities**, expand a product input, select **External product or DPP**
+in its source dropdown, then choose **Connect DPP**. Upload controls are hidden
+for unresolved inputs, BONSAI sources and ordinary internal activity links. Select a
 Turtle or calculator JSON-LD file, select its determining product output, and
 enter the quantity required in that output's unit. The preview shows the
 contributing activities, source assumptions and background-data readiness.

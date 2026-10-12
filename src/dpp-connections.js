@@ -281,6 +281,7 @@ function dppDisconnect(flowId) {
 
 function dppSourceCard(flow) {
   if (flow.direction !== "input" || getFlowType(flow.flowTypeUri)?.className !== "ProductFlow") return "";
+  if (flow.sourceMode !== "external" && !flow.connectedDppUri) return "";
   const source = (state.connectedDpps || []).find((item) => item.uri === flow.connectedDppUri);
   return `<div class="dpp-source-card">${source ? `<strong>Connected DPP: ${escapeHtml(source.title)}</strong><span>${escapeHtml(flow.amount)} ${escapeHtml(unitLabel(flow.unitUri))} required per receiving activity output.</span><details><summary>Source and study context</summary><p>${escapeHtml(source.fileName)}</p><p>${escapeHtml(source.uri)}</p><p>${escapeHtml(source.study?.functionalUnit?.whatProvided || "")}</p><p>${escapeHtml(source.study?.scope?.assumption || "")}</p><p>${escapeHtml(source.study?.scope?.limitation || "")}</p></details>` : `<strong>Connect an existing DPP</strong><span>Import a supplier passport and link its product output to this input.</span>`}<div class="dpp-actions"><button type="button" class="button secondary" data-connect-dpp="${flow.id}">${source ? "Replace DPP" : "Connect DPP"}</button>${source ? `<button type="button" class="button quiet" data-disconnect-dpp="${flow.id}">Disconnect DPP</button>` : ""}</div></div>`;
 }

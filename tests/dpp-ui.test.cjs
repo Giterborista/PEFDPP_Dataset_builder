@@ -25,6 +25,7 @@ function ui() {
     nodes.set(id, value); return value;
   };
   e.context.document = {getElementById:node, addEventListener(name, handler) {events[name] = handler;}};
+  e.context.HTMLTextAreaElement = class {};
   e.run('render=()=>{}; initDppConnections();');
   const inputId = () => e.value('state.dataset.activities[0].flows[0].id');
   const click = (id, action) => events.click({target:{id, closest(selector) {
@@ -37,8 +38,47 @@ function ui() {
     node('dppUpload').files = [{size:text.length, name:'supplier.ttl', text:async()=>text}];
     await node('dppUpload').emit('change');
   };
-  return {e, node, click, upload};
+  const chooseSource = (value) => {
+    e.context.sourceEvent = {target:{id:'',dataset:{productSource:inputId()},value}};
+    e.run('handleEditorEvent(sourceEvent)');
+  };
+  const renderInput = () => {
+    e.run('state.activeActivityId=state.dataset.activities[0].id;state.editingFlowId=state.dataset.activities[0].flows[0].id;renderFlows();');
+    return node('flowsList').innerHTML;
+  };
+  return {e, node, click, upload, chooseSource, renderInput};
 }
+
+test('DPP upload controls appear only after choosing External product or DPP', ()=>{
+  const u=ui();
+  for(const source of ['', 'bonsai', 'activity']) {
+    u.chooseSource(source);
+    const html=u.renderInput();
+    assert.doesNotMatch(html,/data-connect-dpp|Connect an existing DPP|Import a supplier passport/);
+  }
+  u.chooseSource('external');
+  assert.match(u.renderInput(),/value="external" selected/);
+  assert.match(u.renderInput(),/data-connect-dpp/);
+  u.chooseSource('');
+  assert.doesNotMatch(u.renderInput(),/data-connect-dpp|Connect an existing DPP/);
+});
+
+test('connected supplier keeps the external dropdown selection and controls after re-import', async()=>{
+  const u=ui();await u.upload(fixture('cartridge'));
+  u.node('dppAmount').value='1';u.click('dppConfirm');
+  const saved=u.e.export();u.e.load(saved);
+  const html=u.renderInput();
+  assert.match(html,/value="external" selected/);
+  assert.match(html,/Replace DPP/);
+  assert.match(html,/Disconnect DPP/);
+  assert.doesNotMatch(html,/data-source-output/);
+  assert.equal(u.e.value('state.dataset.activities[0].flows[0].sourceMode'),'activity');
+  assert.deepEqual(u.e.value('validationIssues()'),[]);
+  u.chooseSource('bonsai');
+  assert.equal(u.e.value('state.connectedDpps.length'),0);
+  assert.equal(u.e.value('state.dataset.activities.length'),1);
+  assert.doesNotMatch(u.renderInput(),/data-connect-dpp|Replace DPP|Disconnect DPP/);
+});
 
 test('dialog requires explicit demand for a different output unit and rejects zero without mutation', async()=>{
   const u=ui();u.e.run('state.dataset.activities[0].flows[0].unitUri=KG_URI');
@@ -90,6 +130,7 @@ test('project printer-to-cartridge upload follows the actual dialog handlers wit
   // This is the printer input a person expands before pressing Connect DPP.
   u.e.run(`state.dataset.activities.sort((a,b)=>Number(b.name.startsWith('Printer assembly'))-Number(a.name.startsWith('Printer assembly')));state.dataset.activities[0].flows.sort((a,b)=>Number(b.uri.endsWith('cartridge-input'))-Number(a.uri.endsWith('cartridge-input')))`);
   assert.equal(u.e.value('state.dataset.activities[0].flows[0].sourceMode'),'bonsai');
+  u.chooseSource('external');
   await u.upload(fs.readFileSync(path.join(folder,'02_Cartridge_DPP_nested.ttl'),'utf8'));
   assert.equal(u.node('dppAmount').value,'');assert.match(u.node('dppPreview').textContent,/2 of 2 activities/);
   assert.match(u.node('dppPreview').textContent,/0 unresolved/);
