@@ -127,3 +127,15 @@ displays the method-mixing limitation. Only climate is calculated; the index doe
 not establish PEF compliance, verify proxy choices, or resolve missing physical-to-
 monetary conversions. Any demonstration conversion must be a disclosed model
 assumption with its original foreground quantity retained.
+
+## Outgoing waste treatment
+
+Selecting an outgoing `WasteFlow` opens the BONSAI treatment search immediately.
+Search includes waste datasets and mass-based treatment/recycling services that
+BONSAI classifies as products. The selected service remains a background provider;
+the foreground stream keeps its `WasteFlow` identity through selection and export.
+Its treatment contribution is counted once, with the activity demand and physical
+unit conversion, including any credit already present in the selected dataset.
+Do not also add the same treatment as a separate foreground activity. Incoming
+waste is a separate modelling case and is not assigned an outgoing-treatment
+burden by this control.
