@@ -20,7 +20,7 @@ The prototype lets a user define:
 - one determining output flow per activity
 - JSON-LD and Turtle exports using the same ontology relations
 
-This version has no Brightway and no backend. It uses a static BONSAI v2.1.6 GWP100 catalogue for the limited climate-change calculation shown in the browser. It is intended to be deployable as a Render Static Site.
+This version has no Brightway and no backend. It uses a static BONSAI v2.1.6 GWP100 catalogue for background contributions and the official EF 3.1 total-climate factors for exact EF elementary-flow identifiers. A result combining these sources is a research estimate with different, unharmonised methods; it is not an EF-compliant product footprint. It is intended to be deployable as a Render Static Site.
 
 The included example models two connected foreground activities. A 2 kg steel input is supplied by the global BONSAI steel market (`M_STEL`), converted to its tonnes reference unit, and contributes 6.58 kg CO2e per functional unit. The first activity's reference output is linked to the second activity through a distinct `FlowLink` output/input pair. If the upstream activity produces two units per activity run while the downstream activity needs one, its background demand and climate contribution are scaled by one half.
 
@@ -53,7 +53,7 @@ The builder preserves the implemented PEFDPP classes, predicates, units, geograp
 
 - the foreground connection terms `FlowLink`, `hasFlowLink`, `flowFrom` and `toFlow` are used by the MVP but are not declared in the current publication ontology;
 - the publication ontology marks `Activity.hasActivityType`, `ProductSystem.hasSystemDiagram`, `PEFStudy.hasAggregatedLCI` and `PEFStudy.hasLCIAResult` as PEF-required, but the current form does not collect or export these values;
-- the browser result is a static BONSAI GWP100 calculation only; EF elementary-flow characterisation and the full EF LCIA result set are not calculated.
+- direct elementary exchanges can be characterised for climate change only; the full EF LCIA result set is not calculated. Unknown identifiers, wrong units/directions and unresolved backgrounds still block a complete result.
 
 These gaps require an ontology-owner and product-scope decision. The app does not invent values for them.
 # Connecting and nesting DPPs
@@ -71,7 +71,7 @@ Calculations follow the ordinary supplying-output → receiving-input FlowLinks:
 supplier scale = receiving activity scale × required input / supplier output.
 The parent study stays authoritative; source functional-unit quantities and
 durations are retained as provenance and are not multiplied into its inventory.
-Unresolved backgrounds and elementary emissions remain visible and prevent a
+Unresolved backgrounds and unmapped elementary emissions remain visible and prevent a
 complete climate result. Connecting a passport does not establish physical
 compatibility, background quality, allocation validity or PEF compliance.
 
@@ -103,3 +103,27 @@ files are available. GitHub Actions runs it on pushes and pull requests.
 Dialog-handler unit tests cover output selection, explicit demand, invalid files,
 confirmation, cancellation and disconnection using a small DOM test double.
 They do not substitute for browser layout or end-to-end checks.
+
+## Direct elementary emissions
+
+`data/climate-characterisation-index.json` is generated from the supplied official
+`EF-LCIAMethod_CF(EF-v3.1).xlsx`, using the total climate method UUID
+`6209b35f-9447-40b5-b68c-a1099e3674a0`. It contains source hashes and 1,099 factors,
+plus unit/direction membership for the 93,993 published elementary-flow identifiers.
+Regenerate it with `scripts/build_climate_characterisation_index.py WORKBOOK
+--elementary-index data/elementary-flows-index.json --output
+data/climate-characterisation-index.json` (requires Python and openpyxl).
+
+Factors match exact UUIDs, native units, exchange directions and published
+geographies. Climate subcategories are not summed into the total method. A known
+EF flow absent from the complete climate CF table contributes zero **under this
+method**, and is explicitly listed as having no climate factor. This does not
+imply zero environmental impact. Unknown flows, incompatible units and wrong
+directions remain unresolved. Foreground scaling applies once to direct emissions
+and to background contributions; resource uptake uses the published factor sign.
+
+The review distinguishes BONSAI backgrounds from direct EF 3.1 emissions and
+displays the method-mixing limitation. Only climate is calculated; the index does
+not establish PEF compliance, verify proxy choices, or resolve missing physical-to-
+monetary conversions. Any demonstration conversion must be a disclosed model
+assumption with its original foreground quantity retained.

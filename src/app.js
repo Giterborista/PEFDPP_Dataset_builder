@@ -42,6 +42,7 @@ const state = {
   ontologyOptions: { geographies: [], units: [], metadata: null, ready: false, error: "" },
   studyOptions: { boundaryTypes: [], lifeCycleStages: LIFE_CYCLE_STAGES, quantityUnits: [], durationUnits: [], impactCategories: [], ready: false, error: "" },
   elementary: { entries: null, metadata: null, loading: false, error: "", openFlowId: "" },
+  characterisation: { index: null, loading: false, error: "" },
   bonsai: { entries: null, metadata: null, loading: false, error: "", openFlowId: "" },
   flowTypes: [
     {
@@ -652,18 +653,43 @@ function climateReport() {
     const className = getFlowType(flow.flowTypeUri)?.className;
     return (flow.direction === "input" && className === "ProductFlow") || (flow.direction === "output" && className === "WasteFlow");
   }).filter(({ flow }) => !["bonsai", "activity"].includes(flow.sourceMode));
-  const uncharacterisedElementary = allFlows.filter(({ flow }) => getFlowType(flow.flowTypeUri)?.className === "ElementaryFlow");
+  const elementaryRows = allFlows.filter(({ flow }) => getFlowType(flow.flowTypeUri)?.className === "ElementaryFlow").map(({ activity, flow }) => {
+    const result = EFClimate.characterise(flow, activity, state.characterisation.index);
+    const activityScale = scaling.scales.get(activity.id) || 0;
+    return { activity, flow, ...result, activityScale, scaledContributionKg: result.ok ? result.contributionKg * activityScale : null };
+  });
+  const uncharacterisedElementary = elementaryRows.filter(row => !row.ok);
+  const elementary = elementaryRows.filter(row => row.ok);
+  const contributions = [...direct, ...elementary];
   const missingReferenceOutputs = state.dataset.activities.filter((activity) => !activity.flows.some((flow) => flow.direction === "output" && flow.determining));
-  const directTotal = direct.reduce((sum, row) => sum + row.scaledContributionKg, 0);
-  const calculated = direct.length > 0 && !unresolvedBonsai.length && !nonBonsaiInventory.length && !uncharacterisedElementary.length && !missingReferenceOutputs.length && !scaling.issues.length;
+  const backgroundTotal = direct.reduce((sum, row) => sum + row.scaledContributionKg, 0);
+  const elementaryTotal = elementary.reduce((sum, row) => sum + row.scaledContributionKg, 0);
+  const directTotal = backgroundTotal + elementaryTotal;
+  const calculated = contributions.length > 0 && !unresolvedBonsai.length && !nonBonsaiInventory.length && !uncharacterisedElementary.length && !missingReferenceOutputs.length && !scaling.issues.length;
   const reasons = [
     ...unresolvedBonsai.map((row) => `${row.flow.label}: ${row.reason}`),
     ...nonBonsaiInventory.map(({ flow }) => `${flow.label}: not directly BONSAI-resolved`),
-    ...uncharacterisedElementary.map(({ flow }) => `${flow.label}: elementary-flow characterisation is not implemented in this MVP`),
+    ...uncharacterisedElementary.map(({ flow, reason }) => `${flow.label}: ${reason}`),
     ...missingReferenceOutputs.map((activity) => `${activity.name || "Untitled activity"}: reference output missing`),
     ...scaling.issues
   ];
-  return { direct, unresolvedBonsai, nonBonsaiInventory, uncharacterisedElementary, missingReferenceOutputs, activityScales: scaling.scales, scalingIssues: scaling.issues, directTotal, calculated, reasons };
+  return { direct, elementary, contributions, elementaryRows, unresolvedBonsai, nonBonsaiInventory, uncharacterisedElementary, missingReferenceOutputs, activityScales: scaling.scales, scalingIssues: scaling.issues, backgroundTotal, elementaryTotal, directTotal, calculated, reasons };
+}
+
+async function loadClimateCharacterisation() {
+  if (state.characterisation.index || state.characterisation.loading) return;
+  state.characterisation.loading = true;
+  state.characterisation.error = "";
+  try {
+    const response = await fetch("data/climate-characterisation-index.json");
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    state.characterisation.index = EFClimate.prepare(await response.json());
+  } catch (error) {
+    state.characterisation.error = `EF 3.1 climate factors could not be loaded: ${error.message}`;
+  } finally {
+    state.characterisation.loading = false;
+    render();
+  }
 }
 
 function bonsaiFlowType(flow, entry) {
@@ -1659,7 +1685,7 @@ function renderSummary() {
   const structureIssues = structureValidationIssues();
   const systemStatus = structureIssues.length ? "Needs review" : state.dataset.activities.length <= 1 ? "Single activity" : "Connected";
   setOutcomeStatus("outcomeSystemStatus", systemStatus, structureIssues.length);
-  const climateInventoryPresent = climate.direct.length || climate.unresolvedBonsai.length || climate.nonBonsaiInventory.length || climate.uncharacterisedElementary.length;
+  const climateInventoryPresent = climate.contributions.length || climate.unresolvedBonsai.length || climate.nonBonsaiInventory.length || climate.uncharacterisedElementary.length;
   el("outcomeClimateValue").textContent = climate.calculated ? formatImpact(climate.directTotal) : "Not calculated";
   setOutcomeStatus("outcomeClimateStatus", climate.calculated ? "per functional unit" : climateInventoryPresent ? conciseClimateReason(climate) : "No background inputs", !climate.calculated && Boolean(climateInventoryPresent));
   const exportLabel = ready ? (state.dataset.complianceLevel === "EFCompliant" ? "EF profile selected" : "Ontology export ready") : "Draft";
@@ -1693,6 +1719,8 @@ function conciseClimateReason(report) {
   const reasons = [];
   if (unresolvedProviders) reasons.push(`Resolve ${unresolvedProviders} BONSAI provider${unresolvedProviders === 1 ? "" : "s"}`);
   if (incompatibleUnits) reasons.push(`${incompatibleUnits} incompatible unit${incompatibleUnits === 1 ? "" : "s"}`);
+  if (report.nonBonsaiInventory.length) reasons.push(`${report.nonBonsaiInventory.length} unresolved background flow${report.nonBonsaiInventory.length === 1 ? "" : "s"}`);
+  if (report.uncharacterisedElementary.length) reasons.push(`${report.uncharacterisedElementary.length} unresolved elementary flow${report.uncharacterisedElementary.length === 1 ? "" : "s"}`);
   if (report.scalingIssues.some((issue) => /cycle/i.test(issue))) reasons.push("Resolve the activity connection cycle");
   else if (report.scalingIssues.length) reasons.push("Resolve activity quantities and connections");
   if (!reasons.length && (report.nonBonsaiInventory.length || report.uncharacterisedElementary.length || report.missingReferenceOutputs.length)) reasons.push("Inventory unresolved");
@@ -1732,21 +1760,23 @@ function renderClimateImpact(report) {
   const node = el("climateImpactContent");
   if (!node) return;
   const activityTotals = new Map();
-  report.direct.forEach((row) => activityTotals.set(row.activity.id, (activityTotals.get(row.activity.id) || 0) + row.scaledContributionKg));
+  report.contributions.forEach((row) => activityTotals.set(row.activity.id, (activityTotals.get(row.activity.id) || 0) + row.scaledContributionKg));
   const values = [...activityTotals.values()];
-  const max = Math.max(...values, 1);
+  const max = Math.max(...values.map(Math.abs), 1);
   const denominator = report.directTotal || values.reduce((sum, value) => sum + value, 0) || 1;
   const bars = [...activityTotals.entries()].map(([id, value]) => {
     const activity = state.dataset.activities.find((item) => item.id === id);
-    return `<div class="contribution-row"><span>${escapeHtml(activity?.name || "Activity")}</span><div><i style="width:${Math.max(3, value / max * 100)}%"></i></div><strong>${formatImpact(value)} <small>${(value / denominator * 100).toFixed(1)}%</small></strong></div>`;
+    return `<div class="contribution-row"><span>${escapeHtml(activity?.name || "Activity")}</span><div><i style="width:${Math.max(0, Math.abs(value) / max * 100)}%"></i></div><strong>${formatImpact(value)} <small>${(value / denominator * 100).toFixed(1)}%</small></strong></div>`;
   }).join("");
   const result = report.calculated
     ? `<div class="impact-hero calculated"><span>Climate-change result</span><strong>${formatImpact(report.directTotal)} <small>per functional unit</small></strong></div>`
     : `<div class="impact-hero partial"><span>Climate impact not calculated</span><strong>Not calculated</strong><p>${escapeHtml(conciseClimateReason(report))}</p></div>`;
   const contribution = bars
-    ? `<div class="contribution-card"><h3>${report.calculated ? "Contribution by activity" : "Available background contribution by activity"}</h3>${bars}</div>`
+    ? `<div class="contribution-card"><h3>${report.calculated ? "Contribution by activity" : "Available contribution by activity"}</h3>${bars}</div>`
     : "";
-  node.innerHTML = `${result}${contribution}`;
+  const elementaryDetails = report.elementaryRows.length ? `<details class="ontology-details"><summary>Direct elementary flows (EF 3.1 climate)</summary><p>${report.elementary.length} of ${report.elementaryRows.length} elementary exchanges processed. ${report.elementary.filter(row => row.factor === null).length} known EF flows have no climate factor in this method; this does not mean they have no other environmental impacts.</p>${state.characterisation.error ? `<p class="inline-error">${escapeHtml(state.characterisation.error)}</p>` : ""}<ul>${report.elementaryRows.map(row => `<li><strong>${escapeHtml(row.flow.label)}</strong>: ${row.ok ? `${formatImpact(row.scaledContributionKg)} per functional unit · ${row.factor === null ? "no factor in this climate method" : `factor ${Number(row.factor).toLocaleString(undefined, { maximumSignificantDigits: 7 })} kg CO2e per ${escapeHtml(unitLabel(row.flow.unitUri))}`} · activity scale ${Number(row.activityScale).toLocaleString(undefined, { maximumSignificantDigits: 7 })}` : escapeHtml(row.reason)}</li>`).join("")}</ul><p>Source: <a href="https://eplca.jrc.ec.europa.eu/LCDN/developerEF.xhtml" target="_blank" rel="noopener noreferrer">European Commission EF 3.1</a>, total climate-change method. Exact flow identifiers and reference units are used.</p></details>` : "";
+  const methodNote = report.elementaryRows.length && report.direct.length ? `<p class="method-note">This research estimate combines BONSAI v2.1.6 GWP100 background factors with EF 3.1 direct-emission factors. These methods have not been harmonised; this is not an EF-compliant product footprint.</p>` : "";
+  node.innerHTML = `${result}${methodNote}${contribution}${elementaryDetails}`;
 }
 
 function renderSemanticTree() {
@@ -1761,7 +1791,7 @@ function renderGraph() {
   const node = el("graphPreview");
   if (!node) return;
   const report = climateReport();
-  const directByFlow = new Map(report.direct.map((row) => [row.flow.id, row]));
+  const directByFlow = new Map(report.contributions.map((row) => [row.flow.id, row]));
   const connections = state.dataset.activities.flatMap((receivingActivity) => receivingActivity.flows
     .filter((flow) => flow.sourceMode === "activity")
     .map((input) => {
@@ -2496,4 +2526,5 @@ initDppConnections();
 render();
 loadOntologyOptions();
 loadStudyOptions();
+loadClimateCharacterisation();
 if (state.dataset.activities.some((activity) => activity.flows.some((flow) => flow.sourceMode === "bonsai"))) loadBonsaiIndex();
