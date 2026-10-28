@@ -33,7 +33,7 @@ test('the BONSAI treatment search is visible for a new or imported unresolved wa
 });
 test('selecting recycling preserves waste identity and counts its treatment exactly once with batch scaling',()=>{
  const e=wasteCase();e.run(`state.dataset.activities[0].flows.find(f=>f.determining).amount='2'`);
- const baseline=e.value('climateReport().backgroundTotal');choose(e,'M_PAPR');
+ const baseline=e.value('climateReport().directTotal');choose(e,'M_PAPR');
  assert.equal(e.value('getFlowType(waste.flowTypeUri).className'),'WasteFlow');
  assert.equal(e.value('waste.flowTypeUri'),e.value('wasteType.uri'));
  const r=e.value('climateReport()');

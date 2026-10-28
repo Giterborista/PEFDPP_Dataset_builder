@@ -6,14 +6,11 @@ function engine() {
   const context = vm.createContext({ console, URL, setTimeout, clearTimeout });
   const run = (code) => vm.runInContext(code, context);
   run(fs.readFileSync(path.join(root, 'src/dpp-connections.js'), 'utf8'));
-  run(fs.readFileSync(path.join(root, 'src/climate-characterisation.js'), 'utf8'));
   run(fs.readFileSync(path.join(root, 'src/app.js'), 'utf8').split('document.addEventListener("input", handleEditorEvent);')[0]);
   context.options = JSON.parse(fs.readFileSync(path.join(root, 'data/ontology-options.json')));
   context.studyOptions = JSON.parse(fs.readFileSync(path.join(root, 'data/study-options.json')));
   context.catalogue = JSON.parse(fs.readFileSync(path.join(root, 'data/bonsai-catalogue-index.json')));
-  context.climateIndex = JSON.parse(fs.readFileSync(path.join(root, 'data/climate-characterisation-index.json')));
   run(`state.ontologyOptions = {...options, ready:true}; state.studyOptions = {...studyOptions, ready:true};
-    state.characterisation.index=EFClimate.prepare(climateIndex);
     state.bonsai.entries=catalogue.entries.map(([code,label,className,offerings])=>({code,label,className,
       offerings:offerings.map(([region,referenceUnit,gwp100,emissionUnit,activityUri])=>({region,referenceUnit,gwp100,emissionUnit,activityUri})).filter(o=>o.activityUri)})).filter(e=>e.offerings.length);`);
   return { context, run, load(ttl) { context.ttl = ttl; run(`{ const loaded=parseTtlSubset(ttl); state.dataset=loaded.dataset;state.productSystem=loaded.productSystem;state.flowTypes=loaded.flowTypes;state.study=loaded.study;state.connectedDpps=loaded.connectedDpps;state.compatReport=loaded.report;reconcileImportedBonsaiSources(); }`); },
