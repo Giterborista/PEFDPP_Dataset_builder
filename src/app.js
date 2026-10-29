@@ -339,8 +339,7 @@ function linkedOutputForInput(flow, ownerActivityId = "") {
 
 function acceptsBonsaiProvider(flow) {
   const className = getFlowType(flow.flowTypeUri)?.className;
-  return (flow.direction === "input" && className === "ProductFlow")
-    || (flow.direction === "output" && ["ProductFlow", "WasteFlow"].includes(className));
+  return ["input", "output"].includes(flow.direction) && ["ProductFlow", "WasteFlow"].includes(className);
 }
 
 function bonsaiAffectsClimate(flow) {
@@ -365,7 +364,7 @@ function bonsaiChoices(flow) {
   const query = normaliseBonsaiText(flow.bonsaiSearch || "");
   if (query.length < 2) return [];
   return state.bonsai.entries
-    .filter((entry) => (className === "WasteFlow" && flow.direction === "output" ? isBonsaiWasteTreatment(entry) : entry.className === className)
+    .filter((entry) => (className === "WasteFlow" ? isBonsaiWasteTreatment(entry) : entry.className === className)
       && normaliseBonsaiText(`${entry.code} ${entry.label}`).includes(query))
     .slice(0, 12);
 }
@@ -661,6 +660,9 @@ function bonsaiContribution(activity, flow) {
   const entry = selectedBonsaiEntry(flow);
   const offering = selectedBonsaiOffering(flow);
   if (!offering) return { activity, flow, entry, offering, ok: false, reason: "Select a BONSAI provider, region and reference unit." };
+  if (!String(flow.amount ?? "").trim() || !Number.isFinite(Number(flow.amount)) || Number(flow.amount) <= 0) {
+    return { activity, flow, entry, offering, ok: false, reason: "Enter an amount greater than zero." };
+  }
   const conversion = convertToProviderDemand(flow.amount, flow.unitUri, offering.referenceUnit);
   if (!conversion.ok) return { activity, flow, entry, offering, conversion, ok: false, reason: conversion.reason };
   const intensity = Number(offering.gwp100);
@@ -720,7 +722,12 @@ function productSystemScaling() {
 function climateReport() {
   const allFlows = state.dataset.activities.flatMap((activity) => activity.flows.map((flow) => ({ activity, flow })));
   const bonsai = allFlows.filter(({ flow }) => flow.sourceMode === "bonsai" && bonsaiAffectsClimate(flow)).map(({ activity, flow }) => bonsaiContribution(activity, flow));
-  const unresolvedBonsai = bonsai.filter((row) => !row.ok);
+  // Incoming waste can identify a BONSAI dataset without purchasing its
+  // outgoing treatment again. Still validate its provider and compatible unit.
+  const incomingWasteMappings = allFlows.filter(({ flow }) => flow.direction === "input"
+    && getFlowType(flow.flowTypeUri)?.className === "WasteFlow" && flow.sourceMode === "bonsai")
+    .map(({ activity, flow }) => bonsaiContribution(activity, flow));
+  const unresolvedBonsai = [...bonsai, ...incomingWasteMappings].filter((row) => !row.ok);
   const scaling = productSystemScaling();
   const direct = bonsai.filter((row) => row.ok).map((row) => {
     const activityScale = scaling.scales.get(row.activity.id) || 0;
@@ -728,7 +735,7 @@ function climateReport() {
   });
   const nonBonsaiInventory = allFlows.filter(({ flow }) => {
     const className = getFlowType(flow.flowTypeUri)?.className;
-    return (flow.direction === "input" && className === "ProductFlow") || (flow.direction === "output" && className === "WasteFlow");
+    return (flow.direction === "input" && ["ProductFlow", "WasteFlow"].includes(className)) || (flow.direction === "output" && className === "WasteFlow");
   }).filter(({ flow }) => !["bonsai", "activity"].includes(flow.sourceMode));
   const elementaryRows = allFlows.filter(({ flow }) => getFlowType(flow.flowTypeUri)?.className === "ElementaryFlow").map(({ activity, flow }) => {
     const result = EFClimate.characterise(flow, activity, state.efClimate.index);
@@ -867,7 +874,7 @@ function activityValidationItems(activity) {
       if (!ontologyUnitKnown(flow.unitUri) && !supported) add("Select a recognised ontology unit.", flow.id, "unitUri");
       if (reference && !supported) add("Use the elementary flow’s reference unit or a supported mass conversion.", flow.id, "unitUri");
     }
-    if (flow.direction === "input" && flowType?.className === "ProductFlow") {
+    if (flow.direction === "input" && ["ProductFlow", "WasteFlow"].includes(flowType?.className)) {
       if (flow.sourceMode === "bonsai") {
         if (!selectedBonsaiOffering(flow)) add("Select a BONSAI dataset and region.", flow.id, "backgroundProvider");
       } else if (flow.sourceMode === "activity") {
@@ -1684,8 +1691,9 @@ function renderFlows() {
   }
   const units = state.ontologyOptions.units || [];
   const sourceEditor = (flow, flowType) => {
-    const wasteOutput = flow.direction === "output" && flowType.className === "WasteFlow";
-    const showBonsai = flow.sourceMode === "bonsai" || (wasteOutput && !flow.sourceMode);
+    const wasteFlow = flowType.className === "WasteFlow";
+    const wasteOutput = flow.direction === "output" && wasteFlow;
+    const showBonsai = flow.sourceMode === "bonsai" || (wasteFlow && !flow.sourceMode);
     const linkedOutput = linkedOutputForInput(flow, activity.id);
     const sourceValue = flow.connectedDppUri ? "external" : flow.sourceMode === "bonsai" ? "bonsai" : flow.sourceMode === "external" ? "external" : flow.sourceMode === "activity" ? "activity" : "";
     const availableOutputs = productOutputs(activity.id);
@@ -1699,14 +1707,15 @@ function renderFlows() {
     const contribution = bonsaiAffectsClimate(flow) ? bonsaiContribution(activity, flow) : null;
     const sourceHeading = flow.direction === "input" ? "Source of this input" : flowType.className === "WasteFlow" ? "Treatment of this output" : "Dataset linked to this output";
     const unresolvedLabel = flow.direction === "output" && flowType.className === "ProductFlow" ? "Produced by this activity" : "Not resolved yet";
-    const bonsaiLabel = wasteOutput ? "BONSAI waste-treatment dataset" : flow.direction === "output" && flowType.className === "ProductFlow" ? "Link to a BONSAI dataset" : "BONSAI background dataset";
+    const bonsaiLabel = wasteOutput ? "BONSAI waste-treatment dataset" : wasteFlow ? "BONSAI waste dataset" : flow.direction === "output" && flowType.className === "ProductFlow" ? "Link to a BONSAI dataset" : "BONSAI background dataset";
     return `<section class="flow-source-picker"><h4>${sourceHeading}</h4>
-      <select aria-label="${sourceHeading}" data-product-source="${flow.id}"><option value="" ${sourceValue ? "" : "selected"}>${unresolvedLabel}</option><option value="bonsai" ${sourceValue === "bonsai" ? "selected" : ""}>${bonsaiLabel}</option>${flow.direction === "input" && flowType.className === "ProductFlow" ? `<option value="activity" ${sourceValue === "activity" ? "selected" : ""}>Produced by another activity in this product system</option>` : ""}<option value="external" ${sourceValue === "external" ? "selected" : ""}>External product or DPP</option></select>
+      <select aria-label="${sourceHeading}" data-product-source="${flow.id}"><option value="" ${sourceValue ? "" : "selected"}>${unresolvedLabel}</option><option value="bonsai" ${sourceValue === "bonsai" ? "selected" : ""}>${bonsaiLabel}</option>${flow.direction === "input" && flowType.className === "ProductFlow" ? `<option value="activity" ${sourceValue === "activity" ? "selected" : ""}>Produced by another activity in this product system</option>` : ""}${!wasteFlow || sourceValue === "external" ? `<option value="external" ${sourceValue === "external" ? "selected" : ""}>${wasteFlow ? "External waste dataset" : "External product or DPP"}</option>` : ""}</select>
       ${flow.direction === "output" && flowType.className === "ProductFlow" && !flow.sourceMode ? `<p class="method-note">This product is supplied by the current activity. A BONSAI link is optional.</p>` : ""}
       ${flow.sourceMode === "activity" && !flow.connectedDppUri ? `<p class="method-note">This input is supplied by an output from another activity.</p><label class="connected-output-selector">Connected output<select data-source-output="${flow.id}"><option value="">Select an activity output</option>${outputGroups.map(({ providerActivity, outputs }) => `<optgroup label="${escapeHtml(providerActivity.name || "Untitled activity")}">${outputs.map(({ flow: providerFlow }) => `<option value="${escapeHtml(flowUri(providerFlow))}" ${flowUri(providerFlow) === flow.linkedOutputFlowUri ? "selected" : ""}>${escapeHtml(providerFlow.label || "Unnamed output")} · ${escapeHtml(providerFlow.amount)} ${escapeHtml(unitLabel(providerFlow.unitUri))}</option>`).join("")}</optgroup>`).join("")}</select></label>${availableOutputs.length ? "" : `<p class="inline-error">Add a product output to another activity before creating this connection.</p>`}${linkedOutput ? `<div class="internal-link-preview"><div><small>Supplier</small><strong>${escapeHtml(linkedOutput.activity.name)}</strong></div><div class="internal-link-edge"><span>${escapeHtml(linkedOutput.flow.label)} · ${escapeHtml(linkedOutput.flow.amount)} ${escapeHtml(unitLabel(linkedOutput.flow.unitUri))}</span><b>→</b><em>Internal connection</em><b>→</b><span>${escapeHtml(flow.label || "This input")}</span></div><div><small>Receiver</small><strong>${escapeHtml(activity.name)}</strong></div></div>` : ""}<details class="ontology-details compact-ontology"><summary>Ontology details</summary><p>ProductSystem → ActivityLink → Activity. Inputs and outputs remain separate Flow instances. Exact FlowType and source-dataset identities resolve the supplier; dcterms:source records the selected output.</p></details>` : ""}
       ${dppSourceCard(flow)}
+      ${wasteFlow && !wasteOutput ? `<p class="method-note">This link identifies incoming waste. Its BONSAI treatment impact is not added here; model treatment on the outgoing waste or as an activity.</p>` : ""}
       ${wasteOutput ? `<p class="method-note">The selected dataset adds the impact of treating this waste. Do not add it here again if the same treatment is already modelled as an activity.</p>` : ""}
-      ${showBonsai ? `<div class="bonsai-controls single-combobox"><label>${wasteOutput ? "Select BONSAI waste treatment" : "Select BONSAI background dataset"}<input role="combobox" aria-expanded="${state.bonsai.openFlowId === flow.id}" type="search" value="${escapeHtml(flow.bonsaiSearch || displayBonsaiLabel(providerEntry?.label) || "")}" placeholder="${wasteOutput ? "Search BONSAI waste treatment or recycling" : "Search BONSAI process or code"}" data-bonsai-search-flow="${flow.id}" autocomplete="off" /></label>
+      ${showBonsai ? `<div class="bonsai-controls single-combobox"><label>${wasteOutput ? "Select BONSAI waste treatment" : wasteFlow ? "Select BONSAI waste dataset" : "Select BONSAI background dataset"}<input role="combobox" aria-expanded="${state.bonsai.openFlowId === flow.id}" type="search" value="${escapeHtml(flow.bonsaiSearch || displayBonsaiLabel(providerEntry?.label) || "")}" placeholder="${wasteFlow ? "Search BONSAI waste treatment or recycling" : "Search BONSAI process or code"}" data-bonsai-search-flow="${flow.id}" autocomplete="off" /></label>
       ${state.bonsai.openFlowId === flow.id ? `<div class="ef-results ef-dropdown" role="listbox">${state.bonsai.loading ? `<span class="picker-note">Loading BONSAI catalogue…</span>` : state.bonsai.error ? `<span class="inline-error">${escapeHtml(state.bonsai.error)}</span>` : providerChoices.map((entry) => `<button type="button" role="option" data-select-bonsai-flow="${flow.id}" data-bonsai-code="${escapeHtml(entry.code)}"><strong>${escapeHtml(displayBonsaiLabel(entry.label))}</strong><span>${escapeHtml(entry.code)} · ${entry.offerings.length} record${entry.offerings.length === 1 ? "" : "s"}</span></button>`).join("") || `<span class="picker-note">${bonsaiQueryReady ? "No matching BONSAI datasets." : "Type at least 2 characters to search."}</span>`}</div>` : ""}
       ${providerEntry ? `<div class="bonsai-selection"><span><strong>${escapeHtml(displayBonsaiLabel(providerEntry.label))}</strong><small>${escapeHtml(providerEntry.code)}</small></span><label>Region<select data-bonsai-region="${flow.id}"><option value="">Select region</option>${providerRegions.map((region) => `<option value="${escapeHtml(region)}" ${region === flow.backgroundProvider?.region ? "selected" : ""}>${escapeHtml(region)}</option>`).join("")}</select></label><span class="locked-reference-unit"><small>Reference unit</small><strong>${escapeHtml(providerOffering?.referenceUnit || "Select region")}</strong></span></div>` : ""}
       ${providerOffering && contribution ? `<details class="provider-details"><summary>Environmental data available</summary><dl><div><dt>Source GWP100 intensity</dt><dd>${Number(providerOffering.gwp100).toLocaleString(undefined, { maximumSignificantDigits: 6 })} ${escapeHtml(providerOffering.emissionUnit)} / ${escapeHtml(providerOffering.referenceUnit)}</dd></div>${contribution.ok ? `<div><dt>Converted quantity</dt><dd>${Number(contribution.conversion.demand).toLocaleString(undefined, { maximumSignificantDigits: 6 })} ${escapeHtml(providerOffering.referenceUnit)}</dd></div><div><dt>Contribution per activity unit</dt><dd>${formatImpact(contribution.contributionKg)}</dd></div>` : `<div class="provider-error"><dt>Calculation</dt><dd>${escapeHtml(contribution.reason)}</dd></div>`}</dl></details>` : ""}</div>` : ""}
@@ -1848,7 +1857,7 @@ function renderBonsaiReview() {
         const contribution = contributes ? bonsaiContribution(activity, flow) : null;
         const scaled = directByFlow.get(flow.id);
         const resultCell = !contributes
-          ? `<strong>Output mapping only</strong><small>Not added as an environmental burden</small>`
+          ? `<strong>${flow.direction === "input" ? "Incoming waste mapping only" : "Output mapping only"}</strong><small>Not added as an environmental burden</small>`
           : contribution.ok
             ? `<strong>${formatImpact(scaled?.scaledContributionKg ?? contribution.contributionKg)}</strong><small>${Number(contribution.conversion.demand).toLocaleString(undefined, { maximumSignificantDigits: 6 })} ${escapeHtml(offering.referenceUnit)} per activity unit · activity scale ${Number(scaled?.activityScale ?? 1).toLocaleString(undefined, { maximumSignificantDigits: 6 })}</small>`
             : `<small>${escapeHtml(contribution.reason)}</small>`;
@@ -2437,20 +2446,21 @@ function handleEditorEvent(event) {
     const activity = getActiveActivity();
     const flow = activity?.flows.find((item) => item.id === target.dataset.flowClass);
     if (flow) {
+      if (flow.connectedDppUri) dppDisconnect(flow.id);
       const item = editableFlowType(flow, target.value);
       item.className = target.value;
       item.ontologyManaged = false;
       item.preferredUnitUri = "";
       item.search = "";
       if (target.value !== "ProductFlow") flow.determining = false;
-      flow.sourceMode = target.value === "WasteFlow" && flow.direction === "output" ? "bonsai" : "";
+      flow.sourceMode = target.value === "WasteFlow" ? "bonsai" : "";
       flow.linkedOutputFlowUri = "";
       flow.providerActivityUri = "";
       flow.backgroundProvider = null;
       flow.bonsaiSearch = "";
       removeUnusedFlowTypes();
       if (target.value === "ElementaryFlow") loadElementaryIndex();
-      if (target.value === "WasteFlow" && flow.direction === "output") loadBonsaiIndex();
+      if (target.value === "WasteFlow") loadBonsaiIndex();
       if (flow.direction === "output") synchronizeInputsLinkedToOutput(flow);
     }
     renderFlows(); refreshDerivedViews(); return;

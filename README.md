@@ -12,7 +12,7 @@ The prototype lets a user define:
 - preservation of exact imported FlowType URIs, including EF 3.1 elementary-flow individuals
 - a single searchable dropdown for selecting an exact EF 3.1 elementary-flow individual
 - ProductFlow input sourcing from another activity's ProductFlow output through a shared exact FlowType URI
-- searchable BONSAI mappings for ProductFlow inputs and outputs, and WasteFlow outputs
+- searchable BONSAI mappings for ProductFlow inputs and outputs, and WasteFlow inputs and outputs
 - activity-geography matching and physical-unit preference for BONSAI records, with only explicit supported conversions
 - climate-change contributions from supplying ProductFlow inputs and WasteFlow treatment; ProductFlow output mappings are descriptive and are not counted twice
 - foreground quantity propagation from the functional-unit reference output through linked activity inputs and outputs
@@ -124,8 +124,10 @@ the foreground stream keeps its `WasteFlow` identity through selection and expor
 Its treatment contribution is counted once, with the activity demand and physical
 unit conversion, including any credit already present in the selected dataset.
 Do not also add the same treatment as a separate foreground activity. Incoming
-waste is a separate modelling case and is not assigned an outgoing-treatment
-burden by this control.
+waste has the same searchable BONSAI selection and locked compatible units. Its
+link identifies the waste without charging outgoing treatment a second time; this
+is disclosed in the flow editor and review. Missing or incompatible incoming-waste
+mappings remain unresolved. Both exports preserve the waste identity and provider.
 
 ## PV publication examples
 

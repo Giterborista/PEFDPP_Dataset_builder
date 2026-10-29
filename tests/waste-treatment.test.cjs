@@ -1,6 +1,6 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {engine}=require('./engine.cjs');
+const {engine,fixture}=require('./engine.cjs');
 
 function wasteCase(className='WasteFlow') {
  const e=engine();e.context.initialClass=className;
@@ -70,4 +70,77 @@ test('changing a previously mapped output to WasteFlow clears stale providers an
  assert.equal(e.value('waste.sourceMode'),'bonsai');
  assert.equal(e.value('waste.providerActivityUri'),'');
  assert.equal(e.value('waste.backgroundProvider'),null);
+});
+
+test('incoming waste exposes BONSAI search and compatible units without becoming a product',()=>{
+ const e=wasteCase();e.run(`waste.direction='input';waste.bonsaiSearch='recycling of paper'`);
+ assert.equal(e.value('acceptsBonsaiProvider(waste)'),true);
+ assert.equal(e.value('sourceReadyForQuantity(waste)'),false);
+ assert.ok(e.value('bonsaiChoices(waste).map(x=>x.code)').includes('M_PAPR'));
+ const nodes=new Map();e.context.document={getElementById(id){if(!nodes.has(id))nodes.set(id,{innerHTML:'',disabled:false});return nodes.get(id);}};
+ e.run(`state.activeActivityId=state.dataset.activities[0].id;state.editingFlowId=waste.id;renderFlows()`);
+ const html=nodes.get('flowsList').innerHTML;
+ assert.match(html,/Select BONSAI waste dataset/);
+ assert.match(html,/data-bonsai-search-flow="waste-paper"/);
+ assert.match(html,/identifies incoming waste/);
+ assert.match(html,/data-flow-field="waste-paper:amount" disabled/);
+ choose(e,'M_PAPR');e.run('applyBonsaiOfferingDefaults(waste)');
+ assert.equal(e.value('sourceReadyForQuantity(waste)'),true);
+ assert.deepEqual(e.value('compatibleUnitsForBonsai(waste).map(x=>x.label)'),['kg']);
+ assert.equal(e.value('getFlowType(waste.flowTypeUri).className'),'WasteFlow');
+ assert.equal(e.value('waste.flowTypeUri'),e.value('wasteType.uri'));
+});
+
+test('incoming waste mappings survive both exports without adding outgoing treatment twice',()=>{
+ const e=wasteCase();e.run(`waste.direction='input'`);
+ const baseline=e.value('climateReport().directTotal');
+ assert.equal(e.value('climateReport().calculated'),false);
+ assert.ok(e.value('activityValidationItems(state.dataset.activities[0])').some(x=>x.flowId==='waste-paper'&&x.field==='sourceMode'));
+ choose(e,'M_PAPR');
+ assert.deepEqual(e.value('validationIssues()'),[]);
+ assert.equal(e.value('climateReport().calculated'),true);
+ assert.equal(e.value('climateReport().directTotal'),baseline);
+ assert.equal(e.value('climateReport().direct.filter(x=>x.flow.id===waste.id).length'),0);
+ for(const text of [e.export(),e.run('dppReadText(toJson())')]) {
+  const imported=engine();imported.load(text);
+  const name=`state.dataset.activities.flatMap(a=>a.flows).find(f=>f.uri.endsWith('#waste-paper'))`;
+  assert.equal(imported.value(`${name}.direction`),'input');
+  assert.equal(imported.value(`getFlowType(${name}.flowTypeUri).className`),'WasteFlow');
+  assert.equal(imported.value(`${name}.backgroundProvider.code`),'M_PAPR');
+  assert.equal(imported.value('climateReport().calculated'),true);
+  assert.equal(imported.value('climateReport().directTotal'),baseline);
+ }
+ e.run(`waste.unitUri=NS.unit+'Megajoule'`);
+ assert.equal(e.value('climateReport().calculated'),false);
+ assert.equal(e.value('climateReport().unresolvedBonsai.length'),1);
+});
+
+test('switching an input to waste clears its former product provider and opens BONSAI search',()=>{
+ const e=wasteCase('ProductFlow');e.context.HTMLTextAreaElement=class {};
+ e.run(`waste.direction='input';waste.sourceMode='bonsai';waste.backgroundProvider={code:'M_STEL',region:'Global',referenceUnit:'tonnes'};waste.providerActivityUri=NS.bonsai+'ACT_M_STEL__Global';state.activeActivityId=state.dataset.activities[0].id;renderFlows=()=>{};refreshDerivedViews=()=>{};`);
+ e.context.event={type:'change',target:{dataset:{flowClass:'waste-paper'},value:'WasteFlow'}};
+ e.run('handleEditorEvent(event)');
+ assert.equal(e.value('waste.sourceMode'),'bonsai');
+ assert.equal(e.value('waste.backgroundProvider'),null);
+ assert.equal(e.value('waste.providerActivityUri'),'');
+ assert.equal(e.value('sourceReadyForQuantity(waste)'),false);
+});
+
+for (const amount of ['', '0', '-1', 'NaN']) test(`invalid incoming-waste quantity ${JSON.stringify(amount)} stays unresolved`,()=>{
+ const e=wasteCase();choose(e,'M_PAPR');e.context.invalidAmount=amount;e.run(`waste.direction='input';waste.amount=invalidAmount`);
+ assert.equal(e.value('climateReport().calculated'),false);
+ assert.match(e.value('climateReport().unresolvedBonsai[0].reason'),/amount greater than zero/);
+});
+
+test('changing a DPP-connected product input to waste disconnects its former supplier',()=>{
+ const e=engine();e.load(fixture('receiver',{raw:false}));e.prepare(fixture('supplier'));e.attach('1');
+ e.context.HTMLTextAreaElement=class {};
+ e.run(`state.activeActivityId=state.dataset.activities[0].id;renderFlows=()=>{};refreshDerivedViews=()=>{}`);
+ e.context.event={type:'change',target:{dataset:{flowClass:e.value('state.dataset.activities[0].flows[0].id')},value:'WasteFlow'}};
+ e.run('handleEditorEvent(event)');
+ assert.equal(e.value('state.connectedDpps.length'),0);
+ assert.equal(e.value('state.dataset.activities.length'),1);
+ assert.equal(e.value('state.dataset.activities[0].flows[0].connectedDppUri'),'');
+ assert.equal(e.value('state.dataset.activities[0].flows[0].sourceMode'),'bonsai');
+ assert.equal(e.value('getFlowType(state.dataset.activities[0].flows[0].flowTypeUri).className'),'WasteFlow');
 });
