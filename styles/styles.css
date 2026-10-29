@@ -1974,3 +1974,10 @@ a:focus-visible { outline: 2px solid var(--cerise-blue); outline-offset: 2px; }
   .flow-summary { min-width: 0; }
   .flow-summary strong, .dpp-hierarchy, .edge-flow strong { overflow-wrap: anywhere; }
 }
+:root { --ef-table-border: #dbe3e8; }
+.ef-impact-table { max-height: 520px; overflow: auto; margin-top: 16px; border: 1px solid var(--ef-table-border); }
+.ef-impact-table table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.ef-impact-table th, .ef-impact-table td { padding: 12px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--ef-table-border); }
+.ef-impact-table th { position: sticky; top: 0; background: #f1f7f7; }
+.ef-impact-table td:first-child { max-width: 320px; overflow-wrap: anywhere; }
+#reviewElementaryImpact code { overflow-wrap: anywhere; }

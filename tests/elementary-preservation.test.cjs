@@ -11,7 +11,7 @@ function addElementary(e) {
     });`);
 }
 
-test('known fossil CO2 and methane are preserved but never characterised or silently included', () => {
+test('known fossil CO2 and methane are characterised separately from BONSAI', () => {
   const e = engine();
   const background = e.value('climateReport().directTotal');
   assert.equal(e.value('climateReport().calculated'), true);
@@ -19,9 +19,9 @@ test('known fossil CO2 and methane are preserved but never characterised or sile
   const report = e.value('climateReport()');
   assert.equal(report.calculated, false);
   assert.equal(report.directTotal, background);
-  assert.equal(report.uncharacterisedElementary.length, 2);
-  assert.ok(report.reasons.every(reason => /characterisation is disabled/.test(reason)));
-  assert.equal(e.run('conciseClimateReason(climateReport())'), '2 unresolved elementary flows');
+  assert.equal(report.uncharacterisedElementary.length, 0);
+  assert.equal(report.elementaryTotal, 60.6);
+  assert.equal(report.compatibility.established, false);
 });
 
 test('elementary identifiers, quantities and units survive Turtle and JSON-LD round trips', () => {
@@ -31,15 +31,17 @@ test('elementary identifiers, quantities and units survive Turtle and JSON-LD ro
     const imported = engine(); imported.load(text);
     assert.deepEqual(imported.value(`state.dataset.activities.flatMap(a=>a.flows).filter(f=>getFlowType(f.flowTypeUri)?.className==='ElementaryFlow').map(f=>({uri:f.uri,type:f.flowTypeUri,amount:f.amount,unit:f.unitUri,direction:f.direction}))`), inventory);
     assert.equal(imported.value('climateReport().calculated'), false);
-    assert.equal(imported.value('climateReport().uncharacterisedElementary.length'), 2);
+    assert.equal(imported.value('climateReport().uncharacterisedElementary.length'), 0);
+    assert.equal(imported.value('climateReport().elementaryTotal'), 60.6);
   }
 });
 
-test('an elementary-only inventory does not present a climate result', () => {
+test('an elementary-only inventory presents its direct EF contribution', () => {
   const e = engine(); addElementary(e);
   e.run(`const last=state.dataset.activities.at(-1);const emissions=state.dataset.activities[0].flows.filter(f=>getFlowType(f.flowTypeUri)?.className==='ElementaryFlow');last.flows=[...last.flows.filter(f=>f.determining),...emissions];state.dataset.activities=[last];`);
   const report = e.value('climateReport()');
-  assert.equal(report.calculated, false);
+  assert.equal(report.calculated, true);
   assert.equal(report.direct.length, 0);
-  assert.equal(report.uncharacterisedElementary.length, 2);
+  assert.equal(report.uncharacterisedElementary.length, 0);
+  assert.equal(report.elementaryTotal, 60.6);
 });

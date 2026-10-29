@@ -4,6 +4,7 @@ const NS = {
   flow: "https://w3id.org/mintjesba/pefdpp/flow#",
   productSystem: "https://w3id.org/mintjesba/pefdpp/product-system#",
   pefStudy: "https://w3id.org/mintjesba/pefdpp/pefstudy#",
+  lcia: "https://w3id.org/mintjesba/pefdpp/lcia#",
   impactCategory: "https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#",
   geography: "https://w3id.org/mintjesba/pefdpp/skos/pef-geographies#",
   elementary: "https://w3id.org/mintjesba/pefdpp/skos/ef31-elementaryflows#",
@@ -34,6 +35,7 @@ const LIFE_CYCLE_STAGES = [
 
 const state = {
   connectedDpps: [],
+  efClimate: { index: null, loading: false, error: "" },
   exportMode: "json",
   activeStep: "dataset",
   activeActivityId: "act-component",
@@ -662,18 +664,46 @@ function climateReport() {
     const className = getFlowType(flow.flowTypeUri)?.className;
     return (flow.direction === "input" && className === "ProductFlow") || (flow.direction === "output" && className === "WasteFlow");
   }).filter(({ flow }) => !["bonsai", "activity"].includes(flow.sourceMode));
-  const uncharacterisedElementary = allFlows.filter(({ flow }) => getFlowType(flow.flowTypeUri)?.className === "ElementaryFlow");
+  const elementaryRows = allFlows.filter(({ flow }) => getFlowType(flow.flowTypeUri)?.className === "ElementaryFlow").map(({ activity, flow }) => {
+    const result = EFClimate.characterise(flow, activity, state.efClimate.index);
+    const activityScale = scaling.scales.get(activity.id);
+    if (activityScale === undefined) return { activity, flow, ok: false, status: "unresolved", reason: "Activity is outside the functional-unit demand graph." };
+    if (result.ok && !Number.isFinite(result.contributionKg * activityScale)) return { activity, flow, ok: false, status: "unresolved", reason: "Scaled contribution exceeds the supported calculation range." };
+    return { activity, flow, ...result, activityScale, scaledContributionKg: result.ok ? result.contributionKg * activityScale : null };
+  });
+  const uncharacterisedElementary = elementaryRows.filter(row => !row.ok);
   const missingReferenceOutputs = state.dataset.activities.filter((activity) => !activity.flows.some((flow) => flow.direction === "output" && flow.determining));
   const directTotal = direct.reduce((sum, row) => sum + row.scaledContributionKg, 0);
-  const calculated = direct.length > 0 && !unresolvedBonsai.length && !nonBonsaiInventory.length && !uncharacterisedElementary.length && !missingReferenceOutputs.length && !scaling.issues.length;
+  const elementaryTotal = elementaryRows.filter(row => row.ok).reduce((sum, row) => sum + row.scaledContributionKg, 0);
+  const elementaryCalculated = elementaryRows.length > 0 && !uncharacterisedElementary.length && !scaling.issues.length && !missingReferenceOutputs.length;
+  const backgroundCalculated = direct.length > 0 && !unresolvedBonsai.length && !nonBonsaiInventory.length && !missingReferenceOutputs.length && !scaling.issues.length;
+  const compatibility = { established: false, overlapVerified: false, reason: "BONSAI v2.1.6 method equivalence and foreground/background overlap are not verified. Contributions are reported separately." };
+  const calculated = !elementaryRows.length ? backgroundCalculated : !bonsai.length && !nonBonsaiInventory.length && elementaryCalculated;
   const reasons = [
     ...unresolvedBonsai.map((row) => `${row.flow.label}: ${row.reason}`),
     ...nonBonsaiInventory.map(({ flow }) => `${flow.label}: not directly BONSAI-resolved`),
-    ...uncharacterisedElementary.map(({ flow }) => `${flow.label}: elementary-flow characterisation is disabled; inventory retained`),
+    ...uncharacterisedElementary.map(({ flow, reason }) => `${flow.label}: ${reason}`),
     ...missingReferenceOutputs.map((activity) => `${activity.name || "Untitled activity"}: reference output missing`),
     ...scaling.issues
   ];
-  return { direct, unresolvedBonsai, nonBonsaiInventory, uncharacterisedElementary, missingReferenceOutputs, activityScales: scaling.scales, scalingIssues: scaling.issues, directTotal, calculated, reasons };
+  if (elementaryRows.length && bonsai.length) reasons.push(compatibility.reason);
+  return { direct, unresolvedBonsai, nonBonsaiInventory, elementaryRows, elementaryTotal, elementaryCalculated, backgroundCalculated, compatibility, uncharacterisedElementary, missingReferenceOutputs, activityScales: scaling.scales, scalingIssues: scaling.issues, directTotal, calculated, reasons };
+}
+
+async function loadClimateFactors() {
+  state.efClimate.loading = true;
+  try {
+    const response = await fetch("data/climate-characterisation-index.json");
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    state.efClimate.index = EFClimate.prepare(await response.json());
+    state.efClimate.error = "";
+  } catch (error) {
+    state.efClimate.index = null;
+    state.efClimate.error = `EF climate factors could not be loaded: ${error.message}`;
+  } finally {
+    state.efClimate.loading = false;
+    refreshDerivedViews();
+  }
 }
 
 function bonsaiFlowType(flow, entry) {
@@ -745,11 +775,8 @@ function reconcileElementaryUnits() {
     item.ontologyManaged = true;
     item.label = ontologyEntry.label;
     item.preferredUnitUri = ontologyEntry.preferredUnitUri;
-    if (item.preferredUnitUri) {
-      state.dataset.activities.forEach((activity) => activity.flows.forEach((flow) => {
-        if (flow.flowTypeUri === item.uri) flow.unitUri = item.preferredUnitUri;
-      }));
-    }
+    // Inventory amounts and units are immutable during catalogue loading.
+    // An imported wrong unit must remain visible and unresolved, never relabelled.
   });
 }
 
@@ -769,8 +796,10 @@ function activityValidationItems(activity) {
     if (!flow.unitUri) add("Select a unit.", flow.id, "unitUri");
     const flowType = getFlowType(flow.flowTypeUri);
     if (flowType?.className === "ElementaryFlow") {
-      if (!ontologyUnitKnown(flow.unitUri)) add("Select a recognised ontology unit.", flow.id, "unitUri");
-      if (flowType.preferredUnitUri && flow.unitUri !== flowType.preferredUnitUri) add("Use the elementary flow’s required unit.", flow.id, "unitUri");
+      const reference = state.efClimate.index?.known.get(flow.flowTypeUri.slice(NS.elementary.length))?.unitUri || flowType.preferredUnitUri;
+      const supported = reference && EFClimate.unitConversion(flow.unitUri, reference) !== null;
+      if (!ontologyUnitKnown(flow.unitUri) && !supported) add("Select a recognised ontology unit.", flow.id, "unitUri");
+      if (reference && !supported) add("Use the elementary flow’s reference unit or a supported mass conversion.", flow.id, "unitUri");
     }
     if (flow.direction === "input" && flowType?.className === "ProductFlow") {
       if (flow.sourceMode === "bonsai") {
@@ -983,7 +1012,10 @@ function selectElementaryFlow(item, uri) {
   item.preferredUnitUri = selected.preferredUnitUri;
   item.search = "";
   state.dataset.activities.forEach((activity) => activity.flows.forEach((flow) => {
-    if (flow.flowTypeUri === selected.uri && selected.preferredUnitUri) flow.unitUri = selected.preferredUnitUri;
+    if (flow.flowTypeUri === selected.uri && selected.preferredUnitUri) {
+      if (flow.unitUri && flow.unitUri !== selected.preferredUnitUri) flow.amount = "";
+      flow.unitUri = selected.preferredUnitUri;
+    }
   }));
 }
 
@@ -1675,9 +1707,9 @@ function renderSummary() {
   const structureIssues = structureValidationIssues();
   const systemStatus = structureIssues.length ? "Needs review" : state.dataset.activities.length <= 1 ? "Single activity" : "Connected";
   setOutcomeStatus("outcomeSystemStatus", systemStatus, structureIssues.length);
-  const climateInventoryPresent = climate.direct.length || climate.unresolvedBonsai.length || climate.nonBonsaiInventory.length || climate.uncharacterisedElementary.length;
-  el("outcomeClimateValue").textContent = climate.calculated ? formatImpact(climate.directTotal) : "Not calculated";
-  setOutcomeStatus("outcomeClimateStatus", climate.calculated ? "per functional unit" : climateInventoryPresent ? conciseClimateReason(climate) : "No background inputs", !climate.calculated && Boolean(climateInventoryPresent));
+  const climateInventoryPresent = climate.direct.length || climate.unresolvedBonsai.length || climate.nonBonsaiInventory.length || climate.elementaryRows.length;
+  el("outcomeClimateValue").textContent = climate.elementaryRows.length ? "Separate contributions" : climate.calculated ? formatImpact(climate.directTotal) : "Not calculated";
+  setOutcomeStatus("outcomeClimateStatus", climate.elementaryRows.length ? "EF direct / BONSAI background" : climate.calculated ? "BONSAI background per functional unit" : climateInventoryPresent ? conciseClimateReason(climate) : "No background inputs", !climate.calculated && Boolean(climateInventoryPresent));
   const exportLabel = ready ? (state.dataset.complianceLevel === "EFCompliant" ? "EF profile selected" : "Ontology export ready") : "Draft";
   setOutcomeStatus("outcomeExportStatus", exportLabel, !ready);
   el("jsonExportState").textContent = exportLabel;
@@ -1699,6 +1731,7 @@ function renderSummary() {
   renderActivityValidationCenter();
   renderBonsaiReview();
   renderClimateImpact(climate);
+  renderElementaryReview(climate);
   renderSemanticTree();
   renderSteps();
 }
@@ -1758,13 +1791,20 @@ function renderClimateImpact(report) {
     const activity = state.dataset.activities.find((item) => item.id === id);
     return `<div class="contribution-row"><span>${escapeHtml(activity?.name || "Activity")}</span><div><i style="width:${Math.max(0, Math.abs(value) / max * 100)}%"></i></div><strong>${formatImpact(value)} <small>${(value / denominator * 100).toFixed(1)}%</small></strong></div>`;
   }).join("");
-  const result = report.calculated
-    ? `<div class="impact-hero calculated"><span>Climate-change result</span><strong>${formatImpact(report.directTotal)} <small>per functional unit</small></strong></div>`
-    : `<div class="impact-hero partial"><span>Climate impact not calculated</span><strong>Not calculated</strong><p>${escapeHtml(conciseClimateReason(report))}</p></div>`;
+  const result = `<div class="impact-hero ${report.backgroundCalculated ? "calculated" : "partial"}"><span>BONSAI background contribution</span><strong>${report.direct.length ? formatImpact(report.directTotal) : "Not calculated"} <small>${report.direct.length ? "per functional unit" : ""}</small></strong><p>BONSAI v2.1.6 · GWP100 · IPCC version and carbon-accounting equivalence unverified.${report.backgroundCalculated ? "" : " Available contribution only; background inventory or demand unresolved."}</p></div>`;
   const contribution = bars
-    ? `<div class="contribution-card"><h3>${report.calculated ? "Contribution by activity" : "Available background contribution by activity"}</h3>${bars}</div>`
+    ? `<details class="contribution-card"><summary>BONSAI background contribution by activity</summary>${bars}</details>`
     : "";
-  node.innerHTML = `${result}${contribution}`;
+  const directCount = report.elementaryRows.filter(row => row.ok).length;
+  const directResult = `<div class="impact-hero ${report.elementaryCalculated ? "calculated" : "partial"}"><span>Direct elementary-flow contribution — EF 3.1 Climate change, IPCC 2021, GWP100</span><strong>${directCount ? formatImpact(report.elementaryTotal) : "Not calculated"} <small>${directCount ? "per functional unit" : ""}</small></strong><p>${report.elementaryRows.length ? `${directCount} of ${report.elementaryRows.length} exchanges resolved; ${report.uncharacterisedElementary.length} unresolved. ${report.elementaryCalculated ? "" : "Available direct contribution only."}` : "No elementary exchanges in this inventory."}</p>${state.efClimate.error ? `<p class="inline-error">${escapeHtml(state.efClimate.error)}</p>` : ""}</div>`;
+  node.innerHTML = `${result}${directResult}<p class="method-note">${escapeHtml(report.compatibility.reason)} Using EF factors does not establish PEF compliance.</p>${contribution}`;
+}
+
+function renderElementaryReview(report) {
+  const node = el("reviewElementaryImpact");
+  if (!node) return;
+  const metadata = state.efClimate.index?.metadata;
+  node.innerHTML = `<h3>Direct elementary-flow characterisation</h3><p>EF 3.1 Climate change, IPCC 2021, GWP100. Only explicit published zero factors verify no contribution. Missing factors remain unresolved. Activity demand is applied once.</p>${metadata ? `<p>Method ${escapeHtml(metadata.method.uuid)} · version ${escapeHtml(metadata.method.version)}<br>Source: ${escapeHtml(metadata.source.filename)}<br>SHA-256: <code>${escapeHtml(metadata.source.sha256)}</code></p>` : ""}<div class="ef-impact-table"><table><thead><tr><th>Activity / exchange</th><th>Quantity in reference unit</th><th>Factor (kg CO2e / reference unit)</th><th>Activity scale</th><th>Contribution per functional unit</th></tr></thead><tbody>${report.elementaryRows.map(row => `<tr><td><strong>${escapeHtml(row.flow.label)}</strong><br>${escapeHtml(row.activity.name)}<br><small>${escapeHtml(row.flow.flowTypeUri)}</small></td>${row.ok ? `<td>${row.referenceQuantity} ${escapeHtml(unitLabel(row.referenceUnitUri))}<br>${escapeHtml(row.flow.direction)}</td><td>${row.factor}<br>${escapeHtml(row.region)}${row.status === "verified_no_contribution" ? " · published zero" : ""}</td><td>${row.activityScale}</td><td>${formatImpact(row.scaledContributionKg)}</td>` : `<td colspan="4">Unresolved: ${escapeHtml(row.reason)}</td>`}</tr>`).join("")}</tbody></table></div>`;
 }
 
 function renderSemanticTree() {
@@ -1952,8 +1992,45 @@ function exportGraph() {
   return graph;
 }
 
+// Partial direct results use existing publication predicates and category.
+function elementaryResultGraph() {
+  const report = climateReport(), metadata = state.efClimate.index?.metadata;
+  if (!metadata || report.scalingIssues.length || report.missingReferenceOutputs.length) return [];
+  const rows = report.elementaryRows.filter(row => row.ok);
+  if (!rows.length) return [];
+  const { namespace } = graphUris(), method = metadata.method;
+  const refs = rows.map(({ flow }) => ({ "@id": `${flowUri(flow)}-ef31-climate-contribution` }));
+  return [{ "@id": state.study.uri, [`${NS.pefStudy}hasContributionResult`]: refs }, {
+    "@id": method.categoryUri, [`${NS.lcia}calculatedByMethod`]: { "@id": method.uri }, [`${NS.lcia}hasIndicatorUnit`]: { "@id": method.resultUnitUri }
+  }, {
+    "@id": method.uri, "@type": `${NS.lcia}ImpactAssessmentMethod`, [`${NS.dcterms}identifier`]: method.uuid,
+    [`${NS.dcterms}hasVersion`]: method.version, [`${NS.rdfs}label`]: method.profile,
+    [`${NS.dcterms}source`]: `${metadata.source.filename}; SHA-256 ${metadata.source.sha256}`
+  }, ...rows.map((row, i) => ({
+    ...refs[i], "@type": `${NS.lcia}ContributionResult`,
+    [`${NS.lcia}forImpactCategory`]: { "@id": method.categoryUri },
+    [`${NS.lcia}hasLCIAResultType`]: { "@id": `${NS.lcia}Characterised` },
+    [`${NS.lcia}forActivityLink`]: { "@id": row.activity.activityLinkUri || `${namespace}activity-link-${slug(row.activity.id)}` },
+    [`${NS.lcia}forElementaryFlow`]: { "@id": row.flow.flowTypeUri },
+    ...(row.activity.lifeCycleStageUri ? { [`${NS.lcia}forLifeCycleStage`]: { "@id": row.activity.lifeCycleStageUri } } : {}),
+    [`${NS.dcterms}source`]: { "@id": flowUri(row.flow) },
+    [`${NS.dcterms}description`]: `Direct elementary contribution per functional unit of ${state.study.functionalUnit.uri}; partial study result, excludes BONSAI background. Reference quantity ${row.referenceQuantity}; CF ${row.factor}; factor location ${row.region}; activity scale ${row.activityScale}.`,
+    [`${NS.lcia}hasMeasure`]: { "@type": `${NS.om}Measure`, [`${NS.om}hasUnit`]: { "@id": method.resultUnitUri }, [`${NS.om}hasNumericalValue`]: { "@value": String(row.scaledContributionKg), "@type": `${NS.xsd}double` } }
+  }))];
+}
+
+function elementaryResultTtl() {
+  const literal = value => {
+    if (typeof value === "string") return `"${escapeTtl(value)}"`;
+    if (value["@id"]) return iri(value["@id"]);
+    if (value["@value"] !== undefined) return `"${escapeTtl(value["@value"])}"^^${iri(value["@type"])}`;
+    return `[ ${Object.entries(value).map(([key, item]) => `${key === "@type" ? "a" : iri(key)} ${key === "@type" ? iri(item) : literal(item)}`).join(" ; ")} ]`;
+  };
+  return elementaryResultGraph().map(node => Object.entries(node).filter(([key]) => key !== "@id").map(([key, value]) => `${iri(node["@id"])} ${key === "@type" ? "a" : iri(key)} ${key === "@type" ? iri(value) : (Array.isArray(value) ? value : [value]).map(literal).join(", ")} .`).join("\n")).join("\n");
+}
+
 function toJson() {
-  return JSON.stringify({ "@context": { "@vocab": NS.flow, dcterms: NS.dcterms }, "@graph": exportGraph() }, null, 2);
+  return JSON.stringify({ "@context": { "@vocab": NS.flow, dcterms: NS.dcterms }, "@graph": [...exportGraph(), ...elementaryResultGraph()] }, null, 2);
 }
 
 function toTtl() {
@@ -2040,6 +2117,7 @@ function toTtl() {
   });
   if (state.productSystem.systemDiagramUri) lines.push(`${iri(state.productSystem.uri)} prs:hasSystemDiagram ${iri(state.productSystem.systemDiagramUri)} .`);
   lines.push(dppMetadataTtl());
+  lines.push(elementaryResultTtl());
   return lines.join("\n");
 }
 
@@ -2516,4 +2594,5 @@ initDppConnections();
 render();
 loadOntologyOptions();
 loadStudyOptions();
+loadClimateFactors();
 if (state.dataset.activities.some((activity) => activity.flows.some((flow) => flow.sourceMode === "bonsai"))) loadBonsaiIndex();

@@ -5,11 +5,14 @@ const root = path.resolve(__dirname, '..');
 function engine() {
   const context = vm.createContext({ console, URL, setTimeout, clearTimeout });
   const run = (code) => vm.runInContext(code, context);
+  run(fs.readFileSync(path.join(root, 'src/climate-characterisation.js'), 'utf8'));
   run(fs.readFileSync(path.join(root, 'src/dpp-connections.js'), 'utf8'));
   run(fs.readFileSync(path.join(root, 'src/app.js'), 'utf8').split('document.addEventListener("input", handleEditorEvent);')[0]);
   context.options = JSON.parse(fs.readFileSync(path.join(root, 'data/ontology-options.json')));
   context.studyOptions = JSON.parse(fs.readFileSync(path.join(root, 'data/study-options.json')));
   context.catalogue = JSON.parse(fs.readFileSync(path.join(root, 'data/bonsai-catalogue-index.json')));
+  context.climateFactors = JSON.parse(fs.readFileSync(path.join(root, 'data/climate-characterisation-index.json')));
+  run('state.efClimate.index = EFClimate.prepare(climateFactors)');
   run(`state.ontologyOptions = {...options, ready:true}; state.studyOptions = {...studyOptions, ready:true};
     state.bonsai.entries=catalogue.entries.map(([code,label,className,offerings])=>({code,label,className,
       offerings:offerings.map(([region,referenceUnit,gwp100,emissionUnit,activityUri])=>({region,referenceUnit,gwp100,emissionUnit,activityUri})).filter(o=>o.activityUri)})).filter(e=>e.offerings.length);`);
