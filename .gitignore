@@ -5,3 +5,7 @@ __pycache__/
 .venv/
 venv/
 env/
+
+# Keep the local PV case-study inventories out of the public repository.
+examples/pv_full_publication.ttl
+examples/pv_simplified_publication.ttl

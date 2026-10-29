@@ -129,4 +129,4 @@ burden by this control.
 
 ## PV publication examples
 
-Use [the full PV demonstration](examples/pv_full_publication.ttl) (42 activities, 466 exchanges) or [the simplified selected-inputs PV case](examples/pv_simplified_publication.ttl) (3 activities, 14 exchanges). Both use publication relationships only. Their original quantities and separate background/direct impact reporting are preserved. Files using the removed FlowLink vocabulary are rejected, including nested DPP uploads.
+PV case-study inventories are kept locally and are not distributed in this repository. Optional case-study checks read `PV_FULL_publication.ttl` and `PV_SIMPLIFIED_publication.ttl` from the user's Desktop, or the paths specified by `PEFDPP_PV_FULL_FILE` and `PEFDPP_PV_SIMPLIFIED_FILE`. These checks skip when their local files are unavailable; the synthetic regression tests still run. Files using the removed FlowLink vocabulary are rejected, including nested DPP uploads.

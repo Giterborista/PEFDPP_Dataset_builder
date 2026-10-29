@@ -1,3 +1,4 @@
+const pvFixtures = require('./pv-fixtures.cjs');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -78,7 +79,7 @@ test('contextual labels, assumed quantities and decimal precision agree in both 
 });
 
 test('Publication PV recovers 89 suppliers, preserves assumed inventory and scales demand once',t=>{
-  const file=root+'/examples/pv_full_publication.ttl';if(!fs.existsSync(file))return t.skip('Local Desktop inventory unavailable.');
+  const file=pvFixtures.full;if(!fs.existsSync(file))return t.skip('Local Desktop inventory unavailable.');
   const e=engine();e.load(fs.readFileSync(file,'utf8'));
   assert.equal(e.value('state.dataset.activities.length'),42);assert.equal(e.value('activityConnections().length'),89);
   assert.deepEqual(e.value('validationIssues()'),[]);assert.equal(e.value('climateReport().backgroundCalculated'),true);

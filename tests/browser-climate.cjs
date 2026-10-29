@@ -1,3 +1,4 @@
+const pvFixtures = require('./pv-fixtures.cjs');
 // Desktop QA: real import, selector, review, demand edits and both downloads.
 // Run against a local static server: node tests/browser-climate.cjs URL
 const {chromium} = require(process.env.PLAYWRIGHT_PATH || 'playwright');
@@ -36,8 +37,9 @@ const assert = require('node:assert/strict');
   const imported=engine();imported.load(id==='downloadJson'?imported.run(`dppReadText(${JSON.stringify(text)})`):text);
   assert.equal(imported.value('climateReport().elementaryTotal'),2);
  }
+ if (fs.existsSync(pvFixtures.full)) {
  // Actual PV file upload and dense review. Missing CFs must remain visible.
- await page.locator('#ttlUpload').setInputFiles(root+'/examples/pv_full_publication.ttl');
+ await page.locator('#ttlUpload').setInputFiles(pvFixtures.full);
  await page.waitForFunction(()=>state.dataset.activities.length===42);
  await page.locator('[data-step="review"]').click();
  const pv=await page.evaluate(()=>{const r=climateReport();return {elementary:r.elementaryRows.length,unresolved:r.uncharacterisedElementary.length,calculated:r.calculated};});
@@ -47,7 +49,8 @@ const assert = require('node:assert/strict');
  await page.locator('#climateImpact').evaluate(n=>n.scrollIntoView({block:'start'}));
  await page.screenshot({path:'/private/tmp/ef31-pv-review.png'});
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+ } else console.log('Optional local PV upload skipped; set PEFDPP_PV_FULL_FILE to include it.');
  assert.deepEqual(errors,[]);
- console.log('Desktop browser workflow passed: selector, direct EF result, FU scaling, Turtle/JSON-LD downloads and PV unresolved factors.');
+ console.log('Desktop browser workflow passed: selector, direct EF result, FU scaling, Turtle/JSON-LD downloads and optional local PV unresolved factors.');
  await browser.close();
 })().catch(e=>{console.error(e);process.exit(1);});

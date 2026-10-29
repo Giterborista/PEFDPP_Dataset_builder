@@ -1,3 +1,4 @@
+const pvFixtures = require('./pv-fixtures.cjs');
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
@@ -38,12 +39,12 @@ test('descriptions and comments may explain removed vocabulary without asserting
   assert.doesNotThrow(()=>e.load(text));assert.equal(e.value('activityConnections().length'),1);
 });
 
-test('both bundled PV cases retain connections, exact source quantities and separate climate status',()=>{
-  for(const [name,activities,flows,connections,kg] of [
-    ['pv_full_publication.ttl',42,466,89,169.42396132668023],
-    ['pv_simplified_publication.ttl',3,14,2,48.42400013063052]
-  ]) {
-    const e=engine();e.load(fs.readFileSync(root+'/examples/'+name,'utf8'));
+for(const [name,file,activities,flows,connections,kg] of [
+  ['full',pvFixtures.full,42,466,89,169.42396132668023],
+  ['simplified',pvFixtures.simplified,3,14,2,48.42400013063052]
+]) {
+  test(`local ${name} PV retains connections, source quantities and separate climate status`,{skip:!fs.existsSync(file)},()=>{
+    const e=engine();e.load(fs.readFileSync(file,'utf8'));
     assert.equal(e.value('state.dataset.activities.length'),activities);
     assert.equal(e.value('state.dataset.activities.flatMap(a=>a.flows).length'),flows);
     assert.equal(e.value('activityConnections().length'),connections);
@@ -56,5 +57,5 @@ test('both bundled PV cases retain connections, exact source quantities and sepa
       assert.equal(imported.value('state.dataset.activities.flatMap(a=>a.flows).length'),flows);
       assert.ok(Math.abs(imported.value('climateReport().directTotal')-kg)<1e-9);
     }
-  }
-});
+  });
+}

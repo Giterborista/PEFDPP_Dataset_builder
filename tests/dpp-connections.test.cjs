@@ -1,3 +1,4 @@
+const pvFixtures = require('./pv-fixtures.cjs');
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
@@ -78,7 +79,7 @@ test('default two-activity steel example remains calculated',()=>{
   const e=engine();near(total(e),6.57507178);
 });
 test('project PV selected input example has stable impact and no round-trip type warnings',(t)=>{
-  const file=path.join(root,'examples/pv_simplified_publication.ttl');
+  const file=pvFixtures.simplified;
   if(!fs.existsSync(file)) return t.skip('Local CE-RISE project fixture is not included in the public repository.');
   const e=engine();e.load(fs.readFileSync(file,'utf8'));near(total(e),48.42400013063052);
   const f=engine();f.load(e.export());near(total(f),total(e));assert.deepEqual(f.value('state.compatReport.warnings'),[]);
@@ -163,7 +164,7 @@ test('project Lexmark files follow the strict vocabulary policy before calculati
   }
 });
 test('real PV source can be attached and scaled through a parent input',(t)=>{
-  const file=path.join(root,'examples/pv_simplified_publication.ttl');if(!fs.existsSync(file))return t.skip('Local CE-RISE project fixture is not included in the public repository.');
+  const file=pvFixtures.simplified;if(!fs.existsSync(file))return t.skip('Local CE-RISE project fixture is not included in the public repository.');
   const e=setup();e.prepare(fs.readFileSync(file,'utf8'));e.attach(2);near(total(e),2*48.42400013063052);assert.deepEqual(e.value('validationIssues()'),[]);
 });
 test('project Viessmann checks publication vocabulary before propagating demand',(t)=>{
