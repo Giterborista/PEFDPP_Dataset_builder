@@ -1,0 +1,234 @@
+@prefix : <https://w3id.org/cerise-see/examples/pv-lci#> .
+@prefix dataset: <https://w3id.org/mintjesba/pefdpp/dataset#> .
+@prefix act: <https://w3id.org/mintjesba/pefdpp/activity#> .
+@prefix flow: <https://w3id.org/mintjesba/pefdpp/flow#> .
+@prefix prs: <https://w3id.org/mintjesba/pefdpp/product-system#> .
+@prefix ps: <https://w3id.org/mintjesba/pefdpp/pefstudy#> .
+@prefix om: <http://www.ontology-of-units-of-measure.org/resource/om-2/> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<https://w3id.org/cerise-see/examples/pv-lci#pef-study> a ps:PEFStudy ;
+  dcterms:title "Selected PV inputs — demonstration only, not a full panel footprint"@en ;
+  ps:hasGoal <https://w3id.org/cerise-see/examples/pv-lci#goal> ;
+  ps:hasScope <https://w3id.org/cerise-see/examples/pv-lci#scope> ;
+  ps:hasProductSystem <https://w3id.org/cerise-see/examples/pv-lci#product-system> .
+
+<https://w3id.org/cerise-see/examples/pv-lci#goal> a ps:Goal ;
+  ps:intendedApplication "Test ontology-based PV inventory exchange and connected activity scaling in the CE-RISE calculator."^^xsd:string ;
+  ps:decisionContext "Research demonstration; not a verified product footprint or comparative assertion."^^xsd:string ;
+  ps:commissioner <https://w3id.org/cerise-see/examples/pv-lci#commissioner> ;
+  ps:verifier <https://w3id.org/cerise-see/examples/pv-lci#verifier> .
+
+<https://w3id.org/cerise-see/examples/pv-lci#commissioner> a foaf:Agent ; foaf:name "CE-RISE research demonstration" .
+<https://w3id.org/cerise-see/examples/pv-lci#verifier> a foaf:Agent ; foaf:name "Not independently verified" .
+
+<https://w3id.org/cerise-see/examples/pv-lci#scope> a ps:Scope ;
+  ps:hasFunctionalUnit <https://w3id.org/cerise-see/examples/pv-lci#functional-unit> ;
+  ps:hasSystemBoundary <https://w3id.org/cerise-see/examples/pv-lci#system-boundary> ;
+  ps:includesImpactCategory <https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#Acidification>, <https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#ClimateChange>, <https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#EcoToxicityFreshwater>, <https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#EutrophicationMarine>, <https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#EutrophicationFreshwater>, <https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#EutrophicationTerrestrial>, <https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#HumanToxicityCancer>, <https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#HumanToxicityNonCancer>, <https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#IonisingRadiationHumanHealth>, <https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#LandUse>, <https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#OzoneDepletion>, <https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#ParticulateMatter>, <https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#PhotochemicalOzoneFormationHumanHealth>, <https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#ResourceUseFossils>, <https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#ResourceUseMineralsAndMetals>, <https://w3id.org/mintjesba/pefdpp/skos/ef31-impactcategories#WaterUse> ;
+  ps:hasAssumption "Source quantities are unchanged. China electricity uses the broad BONSAI electricity market. Glass, aluminium, copper and paper use broad BONSAI sector proxies in Germany for RER source inputs. No silicon-to-wafer mass or area conversion was invented. The wafer-to-cell and cell-to-panel quantities are taken directly from the source inventory."^^xsd:string ;
+  ps:hasLimitation "PARTIAL INVENTORY ONLY: 9 background input rows and 2 internal connections in 3 activities. Excludes silicon production, other process inputs, direct elementary emissions, transport, waste treatment, use and end of life. The displayed climate value is only the contribution of these selected input rows, not a PV panel footprint. Full source inventory is retained in 02_PV_FULL_inventory_publication.ttl; the expanded demonstration adds explicitly assumed suppliers. The mandatory 1-year duration is an editor placeholder and has no annualisation meaning."^^xsd:string .
+
+<https://w3id.org/cerise-see/examples/pv-lci#functional-unit> a ps:FunctionalUnit ;
+  ps:whatProvided "1 square metre of single-crystalline silicon photovoltaic panel at the factory gate"^^xsd:string ;
+  ps:howWellProvided "Inventory reference area only; electrical performance and lifetime electricity generation are not assessed."^^xsd:string ;
+  ps:howMuchProvided [ a om:Measure ; om:hasUnit <https://w3id.org/mintjesba/pefdpp/ef31-units#SquareMetre> ; om:hasNumericalValue "1"^^xsd:decimal ] ;
+  ps:howLongProvided [ a om:Measure ; om:hasUnit <http://www.ontology-of-units-of-measure.org/resource/om-2/year> ; om:hasNumericalValue "1"^^xsd:decimal ] ;
+  ps:hasReferenceFlow <https://w3id.org/cerise-see/examples/pv-lci#flow-x-panel-cn-2> ;
+  ps:RFtoFUConversion "1"^^xsd:double ;
+  ps:notCoveredAspect "The duration of 1 year is a mandatory editor placeholder only. This production inventory is not annualised and does not model operation or lifetime generation."^^xsd:string .
+
+<https://w3id.org/cerise-see/examples/pv-lci#system-boundary> a ps:SystemBoundary ;
+  ps:hasBoundaryType <https://w3id.org/mintjesba/pefdpp/pefstudy#CradleToGate> ;
+  ps:cutOffCriteria "Selected-input demonstration: no claim of complete mass or environmental coverage."^^xsd:string ;
+  ps:hasJustification "Shows data reuse and quantity propagation from wafer production through cell production to panel assembly using only the selected source rows."^^xsd:string ;
+  ps:excludesActivity "Use, lifetime electricity generation, installation and end-of-life activities."^^xsd:string ;
+  ps:exclusionJustification "Not represented in this production inventory example."^^xsd:string .
+
+<https://w3id.org/cerise-see/examples/pv-lci#pv-supply-chain-lci> a dataset:LCIDataset ;
+  dcterms:title "PV panel — SELECTED INPUTS ONLY — calculator demonstration"@en ;
+  dataset:hasDatasetType dataset:DPP ;
+  dataset:hasComplianceLevel dataset:NotEFCompliant ;
+  dataset:containsActivity <https://w3id.org/cerise-see/examples/pv-lci#activity-x-wafer-cn>, <https://w3id.org/cerise-see/examples/pv-lci#activity-x-cell-cn>, <https://w3id.org/cerise-see/examples/pv-lci#activity-x-panel-cn> .
+
+<https://w3id.org/cerise-see/examples/pv-lci#product-system> a prs:ProductSystem ;
+  rdfs:label "Wafer → cell → panel — selected inputs only"@en ;
+  prs:hasActivityLink <https://w3id.org/cerise-see/examples/pv-lci#activity-link-x-wafer-cn>, <https://w3id.org/cerise-see/examples/pv-lci#activity-link-x-cell-cn>, <https://w3id.org/cerise-see/examples/pv-lci#activity-link-x-panel-cn> .
+
+<https://w3id.org/cerise-see/examples/pv-lci#flowtype-electricity-medium-voltage-at-grid-cn> a flow:ProductFlow ;
+  flow:sourcedFrom <https://w3id.org/cerise-see/examples/pv-lci#pv-supply-chain-lci> ;
+  rdfs:label "production of electricity (market for)"@en .
+
+<https://w3id.org/cerise-see/examples/pv-lci#flowtype-single-si-wafer-photovoltaics-at-plant-cn> a flow:ProductFlow ;
+  flow:sourcedFrom <https://w3id.org/cerise-see/examples/pv-lci#pv-supply-chain-lci> ;
+  rdfs:label "single-Si wafer, photovoltaics, at plant — CN"@en .
+
+<https://w3id.org/cerise-see/examples/pv-lci#flowtype-flat-glass-uncoated-at-plant-rer> a flow:ProductFlow ;
+  flow:sourcedFrom <https://w3id.org/cerise-see/examples/pv-lci#pv-supply-chain-lci> ;
+  rdfs:label "glass and glass products - residual, (market for)"@en .
+
+<https://w3id.org/cerise-see/examples/pv-lci#flowtype-photovoltaic-cell-single-si-at-plant-cn> a flow:ProductFlow ;
+  flow:sourcedFrom <https://w3id.org/cerise-see/examples/pv-lci#pv-supply-chain-lci> ;
+  rdfs:label "photovoltaic cell, single-Si, at plant — CN"@en .
+
+<https://w3id.org/cerise-see/examples/pv-lci#flowtype-metallization-paste-back-side-aluminium-at-plant-rer> a flow:ProductFlow ;
+  flow:sourcedFrom <https://w3id.org/cerise-see/examples/pv-lci#pv-supply-chain-lci> ;
+  rdfs:label "production of aluminum and aluminum product - residual (market for)"@en .
+
+<https://w3id.org/cerise-see/examples/pv-lci#flowtype-photovoltaic-panel-single-si-at-plant-cn> a flow:ProductFlow ;
+  flow:sourcedFrom <https://w3id.org/cerise-see/examples/pv-lci#pv-supply-chain-lci> ;
+  rdfs:label "photovoltaic panel, single-Si, at plant — CN"@en .
+
+<https://w3id.org/cerise-see/examples/pv-lci#flowtype-aluminium-alloy-almg3-at-plant-rer> a flow:ProductFlow ;
+  flow:sourcedFrom <https://w3id.org/cerise-see/examples/pv-lci#pv-supply-chain-lci> ;
+  rdfs:label "production of aluminum and aluminum product - residual (market for)"@en .
+
+<https://w3id.org/cerise-see/examples/pv-lci#flowtype-copper-at-regional-storage-rer> a flow:ProductFlow ;
+  flow:sourcedFrom <https://w3id.org/cerise-see/examples/pv-lci#pv-supply-chain-lci> ;
+  rdfs:label "copper products(market for)"@en .
+
+<https://w3id.org/cerise-see/examples/pv-lci#flowtype-solar-glass-low-iron-at-regional-storage-rer> a flow:ProductFlow ;
+  flow:sourcedFrom <https://w3id.org/cerise-see/examples/pv-lci#pv-supply-chain-lci> ;
+  rdfs:label "glass and glass products - residual, (market for)"@en .
+
+<https://w3id.org/cerise-see/examples/pv-lci#flowtype-corrugated-board-mixed-fibre-single-wall-at-plant-rer> a flow:ProductFlow ;
+  flow:sourcedFrom <https://w3id.org/cerise-see/examples/pv-lci#pv-supply-chain-lci> ;
+  rdfs:label "market of paper and paper products - residual"@en .
+
+<https://w3id.org/cerise-see/examples/pv-lci#activity-link-x-wafer-cn> a prs:ActivityLink ;
+  prs:forActivity <https://w3id.org/cerise-see/examples/pv-lci#activity-x-wafer-cn> ;
+  prs:hasLifeCycleStage <https://w3id.org/mintjesba/pefdpp/product-system#Manufacturing> .
+
+<https://w3id.org/cerise-see/examples/pv-lci#activity-x-wafer-cn> a act:Activity ;
+  rdfs:label "single-Si wafer, photovoltaics, at plant — CN — selected inputs"@en ;
+  act:isCompanySpecific "false"^^xsd:boolean ;
+  act:hasGeography <https://w3id.org/mintjesba/pefdpp/skos/pef-geographies#CN> ;
+  act:hasDeterminingFlow <https://w3id.org/cerise-see/examples/pv-lci#flow-x-wafer-cn-2> .
+
+<https://w3id.org/cerise-see/examples/pv-lci#flow-x-wafer-cn-2> a flow:Flow ;
+  flow:hasFlowType <https://w3id.org/cerise-see/examples/pv-lci#flowtype-single-si-wafer-photovoltaics-at-plant-cn> ;
+  flow:contextualLabel "single-Si wafer, photovoltaics, at plant [CN]"^^xsd:string ;
+  act:outputOf <https://w3id.org/cerise-see/examples/pv-lci#activity-x-wafer-cn> ;
+  flow:hasMeasure [ a om:Measure ; om:hasUnit <https://w3id.org/mintjesba/pefdpp/ef31-units#SquareMetre> ; om:hasNumericalValue "1"^^xsd:decimal ] .
+
+<https://w3id.org/cerise-see/examples/pv-lci#flow-x-wafer-cn-4> a flow:Flow ;
+  flow:hasFlowType <https://w3id.org/cerise-see/examples/pv-lci#flowtype-flat-glass-uncoated-at-plant-rer> ;
+  flow:contextualLabel "flat glass, uncoated, at plant [RER]"^^xsd:string ;
+  act:inputOf <https://w3id.org/cerise-see/examples/pv-lci#activity-x-wafer-cn> ;
+  dcterms:source <https://w3id.org/mintjesba/pefdpp/bonsai#ACT_M_GLAS_01_RES__DE> ;
+  flow:hasMeasure [ a om:Measure ; om:hasUnit <https://w3id.org/mintjesba/pefdpp/ef31-units#Kilogram> ; om:hasNumericalValue "0.00998520710059172"^^xsd:decimal ] .
+
+<https://w3id.org/cerise-see/examples/pv-lci#flow-x-wafer-cn-14> a flow:Flow ;
+  flow:hasFlowType <https://w3id.org/cerise-see/examples/pv-lci#flowtype-electricity-medium-voltage-at-grid-cn> ;
+  flow:contextualLabel "electricity, medium voltage, at grid [CN]"^^xsd:string ;
+  act:inputOf <https://w3id.org/cerise-see/examples/pv-lci#activity-x-wafer-cn> ;
+  dcterms:source <https://w3id.org/mintjesba/pefdpp/bonsai#ACT_M_electricity__CN> ;
+  flow:hasMeasure [ a om:Measure ; om:hasUnit <https://w3id.org/mintjesba/pefdpp/ef31-units#Megajoule> ; om:hasNumericalValue "17.1428571428571"^^xsd:decimal ] .
+
+<https://w3id.org/cerise-see/examples/pv-lci#activity-link-x-cell-cn> a prs:ActivityLink ;
+  prs:forActivity <https://w3id.org/cerise-see/examples/pv-lci#activity-x-cell-cn> ;
+  prs:hasLifeCycleStage <https://w3id.org/mintjesba/pefdpp/product-system#Manufacturing> .
+
+<https://w3id.org/cerise-see/examples/pv-lci#activity-x-cell-cn> a act:Activity ;
+  rdfs:label "photovoltaic cell, single-Si, at plant — CN — selected inputs"@en ;
+  act:isCompanySpecific "false"^^xsd:boolean ;
+  act:hasGeography <https://w3id.org/mintjesba/pefdpp/skos/pef-geographies#CN> ;
+  act:hasDeterminingFlow <https://w3id.org/cerise-see/examples/pv-lci#flow-x-cell-cn-2> .
+
+<https://w3id.org/cerise-see/examples/pv-lci#flow-x-cell-cn-2> a flow:Flow ;
+  flow:hasFlowType <https://w3id.org/cerise-see/examples/pv-lci#flowtype-photovoltaic-cell-single-si-at-plant-cn> ;
+  flow:contextualLabel "photovoltaic cell, single-Si, at plant [CN]"^^xsd:string ;
+  act:outputOf <https://w3id.org/cerise-see/examples/pv-lci#activity-x-cell-cn> ;
+  flow:hasMeasure [ a om:Measure ; om:hasUnit <https://w3id.org/mintjesba/pefdpp/ef31-units#SquareMetre> ; om:hasNumericalValue "1"^^xsd:decimal ] .
+
+<https://w3id.org/cerise-see/examples/pv-lci#flow-x-cell-cn-3> a flow:Flow ;
+  flow:hasFlowType <https://w3id.org/cerise-see/examples/pv-lci#flowtype-single-si-wafer-photovoltaics-at-plant-cn> ;
+  flow:contextualLabel "single-Si wafer, photovoltaics, at plant [CN]"^^xsd:string ;
+  act:inputOf <https://w3id.org/cerise-see/examples/pv-lci#activity-x-cell-cn> ;
+  dcterms:source <https://w3id.org/cerise-see/examples/pv-lci#flow-x-wafer-cn-2> ;
+  flow:hasMeasure [ a om:Measure ; om:hasUnit <https://w3id.org/mintjesba/pefdpp/ef31-units#SquareMetre> ; om:hasNumericalValue "1.03"^^xsd:decimal ] .
+
+<https://w3id.org/cerise-see/examples/pv-lci#flow-x-cell-cn-6> a flow:Flow ;
+  flow:hasFlowType <https://w3id.org/cerise-see/examples/pv-lci#flowtype-metallization-paste-back-side-aluminium-at-plant-rer> ;
+  flow:contextualLabel "metallization paste, back side, aluminium, at plant [RER]"^^xsd:string ;
+  act:inputOf <https://w3id.org/cerise-see/examples/pv-lci#activity-x-cell-cn> ;
+  dcterms:source <https://w3id.org/mintjesba/pefdpp/bonsai#ACT_M_ALUM_01_RES__DE> ;
+  flow:hasMeasure [ a om:Measure ; om:hasUnit <https://w3id.org/mintjesba/pefdpp/ef31-units#Kilogram> ; om:hasNumericalValue "0.0554136509673371"^^xsd:decimal ] .
+
+<https://w3id.org/cerise-see/examples/pv-lci#flow-x-cell-cn-18> a flow:Flow ;
+  flow:hasFlowType <https://w3id.org/cerise-see/examples/pv-lci#flowtype-electricity-medium-voltage-at-grid-cn> ;
+  flow:contextualLabel "electricity, medium voltage, at grid [CN]"^^xsd:string ;
+  act:inputOf <https://w3id.org/cerise-see/examples/pv-lci#activity-x-cell-cn> ;
+  dcterms:source <https://w3id.org/mintjesba/pefdpp/bonsai#ACT_M_electricity__CN> ;
+  flow:hasMeasure [ a om:Measure ; om:hasUnit <https://w3id.org/mintjesba/pefdpp/ef31-units#Megajoule> ; om:hasNumericalValue "63.887656499994"^^xsd:decimal ] .
+
+<https://w3id.org/cerise-see/examples/pv-lci#activity-link-x-panel-cn> a prs:ActivityLink ;
+  prs:forActivity <https://w3id.org/cerise-see/examples/pv-lci#activity-x-panel-cn> ;
+  prs:hasLifeCycleStage <https://w3id.org/mintjesba/pefdpp/product-system#Manufacturing> .
+
+<https://w3id.org/cerise-see/examples/pv-lci#activity-x-panel-cn> a act:Activity ;
+  rdfs:label "photovoltaic panel, single-Si, at plant — CN — selected inputs"@en ;
+  act:isCompanySpecific "false"^^xsd:boolean ;
+  act:hasGeography <https://w3id.org/mintjesba/pefdpp/skos/pef-geographies#CN> ;
+  act:hasDeterminingFlow <https://w3id.org/cerise-see/examples/pv-lci#flow-x-panel-cn-2> .
+
+<https://w3id.org/cerise-see/examples/pv-lci#flow-x-panel-cn-2> a flow:Flow ;
+  flow:hasFlowType <https://w3id.org/cerise-see/examples/pv-lci#flowtype-photovoltaic-panel-single-si-at-plant-cn> ;
+  flow:contextualLabel "photovoltaic panel, single-Si, at plant [CN]"^^xsd:string ;
+  act:outputOf <https://w3id.org/cerise-see/examples/pv-lci#activity-x-panel-cn> ;
+  flow:hasMeasure [ a om:Measure ; om:hasUnit <https://w3id.org/mintjesba/pefdpp/ef31-units#SquareMetre> ; om:hasNumericalValue "1"^^xsd:decimal ] .
+
+<https://w3id.org/cerise-see/examples/pv-lci#flow-x-panel-cn-3> a flow:Flow ;
+  flow:hasFlowType <https://w3id.org/cerise-see/examples/pv-lci#flowtype-photovoltaic-cell-single-si-at-plant-cn> ;
+  flow:contextualLabel "photovoltaic cell, single-Si, at plant [CN]"^^xsd:string ;
+  act:inputOf <https://w3id.org/cerise-see/examples/pv-lci#activity-x-panel-cn> ;
+  dcterms:source <https://w3id.org/cerise-see/examples/pv-lci#flow-x-cell-cn-2> ;
+  flow:hasMeasure [ a om:Measure ; om:hasUnit <https://w3id.org/mintjesba/pefdpp/ef31-units#SquareMetre> ; om:hasNumericalValue "0.935415"^^xsd:decimal ] .
+
+<https://w3id.org/cerise-see/examples/pv-lci#flow-x-panel-cn-4> a flow:Flow ;
+  flow:hasFlowType <https://w3id.org/cerise-see/examples/pv-lci#flowtype-aluminium-alloy-almg3-at-plant-rer> ;
+  flow:contextualLabel "aluminium alloy, AlMg3, at plant [RER]"^^xsd:string ;
+  act:inputOf <https://w3id.org/cerise-see/examples/pv-lci#activity-x-panel-cn> ;
+  dcterms:source <https://w3id.org/mintjesba/pefdpp/bonsai#ACT_M_ALUM_01_RES__DE> ;
+  flow:hasMeasure [ a om:Measure ; om:hasUnit <https://w3id.org/mintjesba/pefdpp/ef31-units#Kilogram> ; om:hasNumericalValue "2.125"^^xsd:decimal ] .
+
+<https://w3id.org/cerise-see/examples/pv-lci#flow-x-panel-cn-5> a flow:Flow ;
+  flow:hasFlowType <https://w3id.org/cerise-see/examples/pv-lci#flowtype-copper-at-regional-storage-rer> ;
+  flow:contextualLabel "copper, at regional storage [RER]"^^xsd:string ;
+  act:inputOf <https://w3id.org/cerise-see/examples/pv-lci#activity-x-panel-cn> ;
+  dcterms:source <https://w3id.org/mintjesba/pefdpp/bonsai#ACT_M_COPP__DE> ;
+  flow:hasMeasure [ a om:Measure ; om:hasUnit <https://w3id.org/mintjesba/pefdpp/ef31-units#Kilogram> ; om:hasNumericalValue "0.1025"^^xsd:decimal ] .
+
+<https://w3id.org/cerise-see/examples/pv-lci#flow-x-panel-cn-11> a flow:Flow ;
+  flow:hasFlowType <https://w3id.org/cerise-see/examples/pv-lci#flowtype-solar-glass-low-iron-at-regional-storage-rer> ;
+  flow:contextualLabel "solar glass, low-iron, at regional storage [RER]"^^xsd:string ;
+  act:inputOf <https://w3id.org/cerise-see/examples/pv-lci#activity-x-panel-cn> ;
+  dcterms:source <https://w3id.org/mintjesba/pefdpp/bonsai#ACT_M_GLAS_01_RES__DE> ;
+  flow:hasMeasure [ a om:Measure ; om:hasUnit <https://w3id.org/mintjesba/pefdpp/ef31-units#Kilogram> ; om:hasNumericalValue "8.8125"^^xsd:decimal ] .
+
+<https://w3id.org/cerise-see/examples/pv-lci#flow-x-panel-cn-24> a flow:Flow ;
+  flow:hasFlowType <https://w3id.org/cerise-see/examples/pv-lci#flowtype-corrugated-board-mixed-fibre-single-wall-at-plant-rer> ;
+  flow:contextualLabel "corrugated board, mixed fibre, single wall, at plant [RER]"^^xsd:string ;
+  act:inputOf <https://w3id.org/cerise-see/examples/pv-lci#activity-x-panel-cn> ;
+  dcterms:source <https://w3id.org/mintjesba/pefdpp/bonsai#ACT_M_PAPE_01_RES__DE> ;
+  flow:hasMeasure [ a om:Measure ; om:hasUnit <https://w3id.org/mintjesba/pefdpp/ef31-units#Kilogram> ; om:hasNumericalValue "0.7625"^^xsd:decimal ] .
+
+<https://w3id.org/cerise-see/examples/pv-lci#flow-x-panel-cn-26> a flow:Flow ;
+  flow:hasFlowType <https://w3id.org/cerise-see/examples/pv-lci#flowtype-electricity-medium-voltage-at-grid-cn> ;
+  flow:contextualLabel "electricity, medium voltage, at grid [CN]"^^xsd:string ;
+  act:inputOf <https://w3id.org/cerise-see/examples/pv-lci#activity-x-panel-cn> ;
+  dcterms:source <https://w3id.org/mintjesba/pefdpp/bonsai#ACT_M_electricity__CN> ;
+  flow:hasMeasure [ a om:Measure ; om:hasUnit <https://w3id.org/mintjesba/pefdpp/ef31-units#Megajoule> ; om:hasNumericalValue "50.3115294937453"^^xsd:decimal ] .
+
+<https://w3id.org/cerise-see/examples/pv-lci#activity-x-wafer-cn> act:hasActivityType <https://w3id.org/cerise-see/examples/pv-lci#activitytype-x-wafer-cn> .
+<https://w3id.org/cerise-see/examples/pv-lci#activitytype-x-wafer-cn> a act:ActivityType ; rdfs:label "single-Si wafer, photovoltaics, at plant — CN" .
+<https://w3id.org/cerise-see/examples/pv-lci#activity-x-cell-cn> act:hasActivityType <https://w3id.org/cerise-see/examples/pv-lci#activitytype-x-cell-cn> .
+<https://w3id.org/cerise-see/examples/pv-lci#activitytype-x-cell-cn> a act:ActivityType ; rdfs:label "photovoltaic cell, single-Si, at plant — CN" .
+<https://w3id.org/cerise-see/examples/pv-lci#activity-x-panel-cn> act:hasActivityType <https://w3id.org/cerise-see/examples/pv-lci#activitytype-x-panel-cn> .
+<https://w3id.org/cerise-see/examples/pv-lci#activitytype-x-panel-cn> a act:ActivityType ; rdfs:label "photovoltaic panel, single-Si, at plant — CN" .
+<https://w3id.org/cerise-see/examples/pv-lci#product-system> prs:hasSystemDiagram <data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDYwIiBoZWlnaHQ9IjIzMCIgdmlld0JveD0iMCAwIDEwNjAgMjMwIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSJ3aGl0ZSIvPjxkZWZzPjxtYXJrZXIgaWQ9ImFycm93IiBtYXJrZXJXaWR0aD0iOCIgbWFya2VySGVpZ2h0PSI4IiByZWZYPSI3IiByZWZZPSI0IiBvcmllbnQ9ImF1dG8iPjxwYXRoIGQ9Ik0wIDBMOCA0TDAgOFoiIGZpbGw9IiMyNzY5YjAiLz48L21hcmtlcj48L2RlZnM+PHBhdGggZD0iTSAyNjAgMTAyIEwgMzgwIDEwMiIgc3Ryb2tlPSIjMjc2OWIwIiBzdHJva2Utd2lkdGg9IjIiIGZpbGw9Im5vbmUiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+PHBhdGggZD0iTSA2MDAgMTAyIEwgNzIwIDEwMiIgc3Ryb2tlPSIjMjc2OWIwIiBzdHJva2Utd2lkdGg9IjIiIGZpbGw9Im5vbmUiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+PGc+PHJlY3QgeD0iNDAiIHk9IjcwIiB3aWR0aD0iMjIwIiBoZWlnaHQ9IjY0IiByeD0iOCIgZmlsbD0iI2U2ZjFmZiIgc3Ryb2tlPSIjMjc2OWIwIi8+PHRleHQgeD0iMTUwIiB5PSI5NyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9IkNhbGlicmksQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxMyI+V0FGRVItQ048L3RleHQ+PHRleHQgeD0iMTUwIiB5PSIxMTgiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJDYWxpYnJpLEFyaWFsLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTEiPlNlbGVjdGVkIGlucHV0cyBvbmx5PC90ZXh0PjwvZz48Zz48cmVjdCB4PSIzODAiIHk9IjcwIiB3aWR0aD0iMjIwIiBoZWlnaHQ9IjY0IiByeD0iOCIgZmlsbD0iI2U2ZjFmZiIgc3Ryb2tlPSIjMjc2OWIwIi8+PHRleHQgeD0iNDkwIiB5PSI5NyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9IkNhbGlicmksQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxMyI+Q0VMTC1DTjwvdGV4dD48dGV4dCB4PSI0OTAiIHk9IjExOCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9IkNhbGlicmksQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxMSI+U2VsZWN0ZWQgaW5wdXRzIG9ubHk8L3RleHQ+PC9nPjxnPjxyZWN0IHg9IjcyMCIgeT0iNzAiIHdpZHRoPSIyMjAiIGhlaWdodD0iNjQiIHJ4PSI4IiBmaWxsPSIjZTZmMWZmIiBzdHJva2U9IiMyNzY5YjAiLz48dGV4dCB4PSI4MzAiIHk9Ijk3IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0iQ2FsaWJyaSxBcmlhbCxzYW5zLXNlcmlmIiBmb250LXNpemU9IjEzIj5QQU5FTC1DTjwvdGV4dD48dGV4dCB4PSI4MzAiIHk9IjExOCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9IkNhbGlicmksQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxMSI+U2VsZWN0ZWQgaW5wdXRzIG9ubHk8L3RleHQ+PC9nPjwvc3ZnPg==> .
+<data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDYwIiBoZWlnaHQ9IjIzMCIgdmlld0JveD0iMCAwIDEwNjAgMjMwIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSJ3aGl0ZSIvPjxkZWZzPjxtYXJrZXIgaWQ9ImFycm93IiBtYXJrZXJXaWR0aD0iOCIgbWFya2VySGVpZ2h0PSI4IiByZWZYPSI3IiByZWZZPSI0IiBvcmllbnQ9ImF1dG8iPjxwYXRoIGQ9Ik0wIDBMOCA0TDAgOFoiIGZpbGw9IiMyNzY5YjAiLz48L21hcmtlcj48L2RlZnM+PHBhdGggZD0iTSAyNjAgMTAyIEwgMzgwIDEwMiIgc3Ryb2tlPSIjMjc2OWIwIiBzdHJva2Utd2lkdGg9IjIiIGZpbGw9Im5vbmUiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+PHBhdGggZD0iTSA2MDAgMTAyIEwgNzIwIDEwMiIgc3Ryb2tlPSIjMjc2OWIwIiBzdHJva2Utd2lkdGg9IjIiIGZpbGw9Im5vbmUiIG1hcmtlci1lbmQ9InVybCgjYXJyb3cpIi8+PGc+PHJlY3QgeD0iNDAiIHk9IjcwIiB3aWR0aD0iMjIwIiBoZWlnaHQ9IjY0IiByeD0iOCIgZmlsbD0iI2U2ZjFmZiIgc3Ryb2tlPSIjMjc2OWIwIi8+PHRleHQgeD0iMTUwIiB5PSI5NyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9IkNhbGlicmksQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxMyI+V0FGRVItQ048L3RleHQ+PHRleHQgeD0iMTUwIiB5PSIxMTgiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJDYWxpYnJpLEFyaWFsLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTEiPlNlbGVjdGVkIGlucHV0cyBvbmx5PC90ZXh0PjwvZz48Zz48cmVjdCB4PSIzODAiIHk9IjcwIiB3aWR0aD0iMjIwIiBoZWlnaHQ9IjY0IiByeD0iOCIgZmlsbD0iI2U2ZjFmZiIgc3Ryb2tlPSIjMjc2OWIwIi8+PHRleHQgeD0iNDkwIiB5PSI5NyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9IkNhbGlicmksQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxMyI+Q0VMTC1DTjwvdGV4dD48dGV4dCB4PSI0OTAiIHk9IjExOCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9IkNhbGlicmksQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxMSI+U2VsZWN0ZWQgaW5wdXRzIG9ubHk8L3RleHQ+PC9nPjxnPjxyZWN0IHg9IjcyMCIgeT0iNzAiIHdpZHRoPSIyMjAiIGhlaWdodD0iNjQiIHJ4PSI4IiBmaWxsPSIjZTZmMWZmIiBzdHJva2U9IiMyNzY5YjAiLz48dGV4dCB4PSI4MzAiIHk9Ijk3IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0iQ2FsaWJyaSxBcmlhbCxzYW5zLXNlcmlmIiBmb250LXNpemU9IjEzIj5QQU5FTC1DTjwvdGV4dD48dGV4dCB4PSI4MzAiIHk9IjExOCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9IkNhbGlicmksQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxMSI+U2VsZWN0ZWQgaW5wdXRzIG9ubHk8L3RleHQ+PC9nPjwvc3ZnPg==> a foaf:Image .
+<https://w3id.org/mintjesba/pefdpp/skos/pef-geographies#CN> a act:Geography .

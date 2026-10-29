@@ -80,8 +80,8 @@ test('result graph uses existing ContributionResult relations and never asserts 
   assert.ok(!JSON.stringify(graph).includes('hasLCIAResult"'));assert.ok(JSON.stringify(graph).includes('forActivityLink'));
   e.run(`state.study.functionalUnit.conversionFactor='0'`);assert.deepEqual(e.value('elementaryResultGraph()'),[]);
 });
-const pv='/Users/bafr/Desktop/PV_panel_manufacturing_DEMO_full_inventory_assumptions.ttl';
-test('Desktop PV demonstration retains 42 activities, 466 exchanges and 202 elementary exchanges',{skip:!fs.existsSync(pv)},()=>{
+const pv=root+'/examples/pv_full_publication.ttl';
+test('Publication PV demonstration retains 42 activities, 466 exchanges and 202 elementary exchanges',{skip:!fs.existsSync(pv)},()=>{
   const e=engine();e.load(fs.readFileSync(pv,'utf8'));const r=e.value('climateReport()');
   assert.equal(e.value('state.dataset.activities.length'),42);assert.equal(e.value('state.dataset.activities.flatMap(a=>a.flows).length'),466);
   assert.deepEqual(e.value('validationIssues()'),[]);assert.equal(r.elementaryRows.length,202);assert.equal(r.calculated,false);

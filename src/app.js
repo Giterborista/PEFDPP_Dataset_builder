@@ -425,15 +425,77 @@ function flowUri(flow) {
   return flow.uri || `${namespace}${slug(flow.id)}`;
 }
 
-function flowLinks() {
+function activityConnections() {
   const { namespace } = graphUris();
   return state.dataset.activities.flatMap((activity) => activity.flows
     .filter((flow) => flow.direction === "input" && flow.sourceMode === "activity" && flow.linkedOutputFlowUri)
     .map((flow) => ({
-      uri: `${namespace}flow-link-${slug(flow.id)}`,
-      flowFrom: flow.linkedOutputFlowUri,
-      toFlow: flowUri(flow)
+      uri: `${namespace}connection-${slug(flow.id)}`,
+      outputFlowUri: flow.linkedOutputFlowUri,
+      inputFlowUri: flowUri(flow)
     })));
+}
+
+// Internal UI edges, not an additional RDF class. Publication-profile sourcing
+// follows exact FlowType -> sourcedFrom LCIDataset -> determining output.
+// dcterms:source may pin the exact output when a dataset has several suppliers;
+// that is a documented application convention, not an OWL supply-chain axiom.
+function resolvePublishedSources(activities, registry, datasetMembers, systemMembers, report) {
+  const owners = new Map(activities.flatMap(activity => activity.flows.map(flow => [flow.uri, { activity, flow }])));
+  let resolved = 0;
+  activities.forEach(receiver => receiver.flows.filter(flow => flow.direction === "input" && registry.get(flow.flowTypeUri)?.className === "ProductFlow").forEach(input => {
+    const source = owners.get(input.providerActivityUri);
+    const declaringDataset = registry.get(input.flowTypeUri)?.sourcedFromUri;
+    const candidates = activities.filter(activity => activity !== receiver
+      && (!systemMembers.size || systemMembers.has(activity.uri))
+      && datasetMembers.get(declaringDataset)?.has(activity.uri))
+      .flatMap(activity => activity.flows.filter(output => output.direction === "output" && output.determining
+        && output.flowTypeUri === input.flowTypeUri).map(flow => ({ activity, flow })));
+    if (source && input.linkedOutputFlowUri && source.flow.uri !== input.linkedOutputFlowUri) {
+      throw new Error(`Conflicting supplier references for ${input.label || input.uri}.`);
+    }
+    let supplier = source || owners.get(input.linkedOutputFlowUri);
+    if (supplier) {
+      if (supplier.activity === receiver || supplier.flow.direction !== "output") {
+        throw new Error(`The source of ${input.label || input.uri} must be an output of another activity.`);
+      }
+      if (systemMembers.size && (!systemMembers.has(supplier.activity.uri) || !systemMembers.has(receiver.uri))) {
+        throw new Error(`The supplier of ${input.label || input.uri} is outside this product system.`);
+      }
+    } else if (!input.providerActivityUri && !input.linkedOutputFlowUri && input.sourceMode !== "bonsai") {
+      if (candidates.length === 1) supplier = candidates[0];
+      else if (candidates.length > 1) {
+        input.sourceMode = "activity";
+        input.connectionIssue = "Select a supplying output: this FlowType has more than one producer in its source dataset.";
+      }
+    }
+    if (!supplier) return;
+    input.sourceMode = "activity";
+    input.linkedOutputFlowUri = supplier.flow.uri;
+    input.sourceActivityId = supplier.activity.id;
+    // Keep provenance separate from BONSAI/external-provider identity. The
+    // output reference is serialized by inventorySourceUri in either format.
+    if (source) input.providerActivityUri = "";
+    resolved += 1;
+  }));
+  report.stats.connections = resolved;
+  if (resolved) report.imported.push({ title: "Supplier connections resolved", detail: `${resolved} exact output/input connections; no name matching or new ontology classes.` });
+}
+
+function inventorySourceUri(flow) {
+  return flow.sourceMode === "activity" ? flow.linkedOutputFlowUri || ""
+    : selectedBonsaiOffering(flow)?.activityUri || flow.providerActivityUri || "";
+}
+
+function decimalLexical(value) {
+  const text = String(value), match = text.match(/^([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/);
+  if (!match || !(match[2] || match[3]) || !Number.isFinite(Number(text))) return text;
+  const exponent = Number(match[4] || 0);
+  if (Math.abs(exponent) > 1000) return text;
+  const digits = match[2] + (match[3] || ""), point = match[2].length + exponent;
+  return match[1] + (point <= 0 ? `0.${"0".repeat(-point)}${digits}`
+    : point >= digits.length ? digits + "0".repeat(point - digits.length)
+    : `${digits.slice(0, point)}.${digits.slice(point)}`);
 }
 
 function synchronizeInputsLinkedToOutput(output, previousUnitUri = output.unitUri) {
@@ -631,6 +693,10 @@ function productSystemScaling() {
         issues.push(`${activity.name || "Untitled activity"}: select the supplying activity output for ${input.label || "an input"}.`);
         return;
       }
+      if (input.flowTypeUri !== provider.flow.flowTypeUri) {
+        issues.push(`${input.label || "Linked flow"}: supplying and receiving FlowType identifiers must match.`);
+        return;
+      }
       const inputAmount = Number(input.amount);
       const outputAmount = Number(provider.flow.amount);
       if (!Number.isFinite(inputAmount) || inputAmount <= 0 || !Number.isFinite(outputAmount) || outputAmount <= 0) {
@@ -806,7 +872,8 @@ function activityValidationItems(activity) {
         if (!selectedBonsaiOffering(flow)) add("Select a BONSAI dataset and region.", flow.id, "backgroundProvider");
       } else if (flow.sourceMode === "activity") {
         const provider = linkedOutputForInput(flow, activity.id);
-        if (!provider) add("Select a connected output.", flow.id, "sourceMode");
+        if (!provider) add(flow.connectionIssue || "Select a connected output.", flow.id, "sourceMode");
+        else if (provider.flow.flowTypeUri !== flow.flowTypeUri) add("Use the same FlowType as the connected output.", flow.id, "sourceMode");
         else if (provider.flow.unitUri !== flow.unitUri) add("Use the same unit as the connected output.", flow.id, "unitUri");
       } else if (!flow.sourceMode) {
         add("Resolve the source of this input.", flow.id, "sourceMode");
@@ -1159,12 +1226,23 @@ function parseTtlSubset(text) {
     return result;
   };
   const statements = ttlStatements(text);
+  // Reject removed RDF vocabulary in subjects, predicates, types and object
+  // references, including aliased/full IRIs. Quoted descriptions and comments
+  // are not ontology statements and must not trigger a false rejection.
+  const forbidden = new Set(["FlowLink", "hasFlowLink", "flowFrom", "toFlow"].map(name => NS.productSystem + name));
+  for (const statement of statements) {
+    const unquoted = statement.replace(/"(?:\\.|[^"\\])*"/g, " ");
+    const terms = unquoted.match(/<[^>]*>|(?:[A-Za-z][\w-]*|):[A-Za-z_][\w.-]*/g) || [];
+    if (terms.some(term => forbidden.has(expandToken(term.replace(/\.$/, ""), prefixes)))) {
+      throw new Error("This file uses FlowLink terms outside the publication ontology. Import a corrected publication-format file.");
+    }
+  }
   const nodes = new Map();
   const p = (ns, local) => predicateToken(prefixes, ns, local);
   const classUri = (node, uri) => tokenList(node.type).some((item) => expandToken(item, prefixes) === uri);
   const report = {
     source: "TTL import", imported: [], warnings: [], unsupported: [],
-    stats: { statements: statements.length, studies: 0, goals: 0, scopes: 0, datasets: 0, productSystems: 0, activityLinks: 0, flowLinks: 0, activities: 0, flows: 0, flowTypes: 0 }
+    stats: { statements: statements.length, studies: 0, goals: 0, scopes: 0, datasets: 0, productSystems: 0, activityLinks: 0, connections: 0, activities: 0, flows: 0, flowTypes: 0 }
   };
 
   statements.forEach((statement) => {
@@ -1195,7 +1273,9 @@ function parseTtlSubset(text) {
     if (foundClass) registry.set(node.subject, {
       id: uid("ft"), uri: node.subject, label: node.label || localName(node.subject), className: foundClass,
       sourcedFromUri: expandToken(predicateValue(node.body, p(NS.flow, "sourcedFrom")), prefixes),
-      ontologyManaged: foundClass === "ElementaryFlow" && node.subject.startsWith(NS.elementary), preferredUnitUri: "", search: ""
+      ontologyManaged: foundClass === "ElementaryFlow" && node.subject.startsWith(NS.elementary), preferredUnitUri: "", search: "",
+      preserveDefinition: true,
+      schemeUri: expandToken(predicateValue(node.body, predicateToken(prefixes, "http://www.w3.org/2004/02/skos/core#", "inScheme")), prefixes)
     });
   });
 
@@ -1204,13 +1284,6 @@ function parseTtlSubset(text) {
   const productSystemNodes = [...nodes.values()].filter((node) => classUri(node, `${NS.productSystem}ProductSystem`));
   const productSystemNode = productSystemNodes[0];
   const activityLinkNodes = [...nodes.values()].filter((node) => classUri(node, `${NS.productSystem}ActivityLink`));
-  const flowLinkNodes = [...nodes.values()].filter((node) => classUri(node, `${NS.productSystem}FlowLink`));
-  const flowLinksByInput = new Map();
-  flowLinkNodes.forEach((node) => {
-    const flowFrom = expandToken(predicateValue(node.body, p(NS.productSystem, "flowFrom")), prefixes);
-    const toFlow = expandToken(predicateValue(node.body, p(NS.productSystem, "toFlow")), prefixes);
-    if (flowFrom && toFlow) flowLinksByInput.set(toFlow, flowFrom);
-  });
   const activityLinksByActivity = new Map();
   activityLinkNodes.forEach((node) => {
     const activityUri = expandToken(predicateValue(node.body, p(NS.productSystem, "forActivity")), prefixes);
@@ -1261,16 +1334,16 @@ function parseTtlSubset(text) {
         });
       }
       const providerActivityUri = expandToken(predicateValue(flowNode.body, p(NS.dcterms, "source")), prefixes);
-      const linkedOutputFlowUri = flowLinksByInput.get(flowNode.subject) || "";
       return {
         id: uid("flow"), uri: flowNode.subject,
         label: literalValue(predicateValue(flowNode.body, p(NS.flow, "contextualLabel"))) || registry.get(flowTypeUri)?.label || localName(flowNode.subject),
         direction: predicateValue(flowNode.body, p(NS.activity, "outputOf")) ? "output" : "input",
         flowTypeUri, amount: measure.amount || "1", unitUri: measure.unitUri,
         determining: Boolean(determiningUri && flowNode.subject === determiningUri),
-        sourceMode: linkedOutputFlowUri ? "activity" : providerActivityUri.startsWith(NS.bonsai) ? "bonsai" : providerActivityUri ? "external" : "",
-        linkedOutputFlowUri,
+        sourceMode: providerActivityUri.startsWith(NS.bonsai) ? "bonsai" : providerActivityUri ? "external" : "",
+        linkedOutputFlowUri: "",
         providerActivityUri,
+        derivationTypeUri: expandToken(predicateValue(flowNode.body, p(NS.flow, "hasDerivationType")), prefixes),
         note: literalValue(predicateValue(flowNode.body, p(NS.dcterms, "description")))
       };
     });
@@ -1288,6 +1361,11 @@ function parseTtlSubset(text) {
     };
   });
 
+  const datasetMembers = new Map(datasets.map(node => [node.subject, new Set(tokenList(predicateValue(node.body, p(NS.dataset, "containsActivity"))).map(token => expandToken(token, prefixes)))]));
+  const systemLinkUris = new Set(productSystemNode ? tokenList(predicateValue(productSystemNode.body, p(NS.productSystem, "hasActivityLink"))).map(token => expandToken(token, prefixes)) : []);
+  const systemMembers = new Set(activityLinkNodes.filter(node => systemLinkUris.has(node.subject)).map(node => expandToken(predicateValue(node.body, p(NS.productSystem, "forActivity")), prefixes)));
+  resolvePublishedSources(activities, registry, datasetMembers, systemMembers, report);
+
   flowsByActivity.forEach((flows, owner) => {
     if (!activitySubjects.has(owner)) report.warnings.push({ title: `Flows attached to undefined activity: ${owner}`, detail: `${flows.length} flow(s) were not imported.` });
   });
@@ -1295,7 +1373,6 @@ function parseTtlSubset(text) {
   report.stats.datasets = datasets.length;
   report.stats.productSystems = productSystemNodes.length;
   report.stats.activityLinks = activityLinkNodes.length;
-  report.stats.flowLinks = flowLinkNodes.length;
   report.stats.activities = activities.length;
   report.stats.flows = activities.reduce((sum, activity) => sum + activity.flows.length, 0);
   report.stats.flowTypes = registry.size;
@@ -1385,6 +1462,7 @@ function parseTtlSubset(text) {
       uri: datasetNode.subject,
       namespace: namespaceOf(datasetNode.subject),
       title: datasetNode.title || localName(datasetNode.subject),
+      note: literalValue(predicateValue(datasetNode.body, p(NS.dcterms, "description"))),
       type: datasetType, complianceLevel: compliance, activities
     },
     flowTypes: [...registry.values()], study, report, connectedDpps
@@ -1625,7 +1703,7 @@ function renderFlows() {
     return `<section class="flow-source-picker"><h4>${sourceHeading}</h4>
       <select aria-label="${sourceHeading}" data-product-source="${flow.id}"><option value="" ${sourceValue ? "" : "selected"}>${unresolvedLabel}</option><option value="bonsai" ${sourceValue === "bonsai" ? "selected" : ""}>${bonsaiLabel}</option>${flow.direction === "input" && flowType.className === "ProductFlow" ? `<option value="activity" ${sourceValue === "activity" ? "selected" : ""}>Produced by another activity in this product system</option>` : ""}<option value="external" ${sourceValue === "external" ? "selected" : ""}>External product or DPP</option></select>
       ${flow.direction === "output" && flowType.className === "ProductFlow" && !flow.sourceMode ? `<p class="method-note">This product is supplied by the current activity. A BONSAI link is optional.</p>` : ""}
-      ${flow.sourceMode === "activity" && !flow.connectedDppUri ? `<p class="method-note">This input is supplied by an output from another activity.</p><label class="connected-output-selector">Connected output<select data-source-output="${flow.id}"><option value="">Select an activity output</option>${outputGroups.map(({ providerActivity, outputs }) => `<optgroup label="${escapeHtml(providerActivity.name || "Untitled activity")}">${outputs.map(({ flow: providerFlow }) => `<option value="${escapeHtml(flowUri(providerFlow))}" ${flowUri(providerFlow) === flow.linkedOutputFlowUri ? "selected" : ""}>${escapeHtml(providerFlow.label || "Unnamed output")} · ${escapeHtml(providerFlow.amount)} ${escapeHtml(unitLabel(providerFlow.unitUri))}</option>`).join("")}</optgroup>`).join("")}</select></label>${availableOutputs.length ? "" : `<p class="inline-error">Add a product output to another activity before creating this connection.</p>`}${linkedOutput ? `<div class="internal-link-preview"><div><small>Supplier</small><strong>${escapeHtml(linkedOutput.activity.name)}</strong></div><div class="internal-link-edge"><span>${escapeHtml(linkedOutput.flow.label)} · ${escapeHtml(linkedOutput.flow.amount)} ${escapeHtml(unitLabel(linkedOutput.flow.unitUri))}</span><b>→</b><em>Internal connection</em><b>→</b><span>${escapeHtml(flow.label || "This input")}</span></div><div><small>Receiver</small><strong>${escapeHtml(activity.name)}</strong></div></div>` : ""}<details class="ontology-details compact-ontology"><summary>Ontology details</summary><p>ProductSystem → hasFlowLink → FlowLink. The supplying output and receiving input remain separate Flow instances.</p></details>` : ""}
+      ${flow.sourceMode === "activity" && !flow.connectedDppUri ? `<p class="method-note">This input is supplied by an output from another activity.</p><label class="connected-output-selector">Connected output<select data-source-output="${flow.id}"><option value="">Select an activity output</option>${outputGroups.map(({ providerActivity, outputs }) => `<optgroup label="${escapeHtml(providerActivity.name || "Untitled activity")}">${outputs.map(({ flow: providerFlow }) => `<option value="${escapeHtml(flowUri(providerFlow))}" ${flowUri(providerFlow) === flow.linkedOutputFlowUri ? "selected" : ""}>${escapeHtml(providerFlow.label || "Unnamed output")} · ${escapeHtml(providerFlow.amount)} ${escapeHtml(unitLabel(providerFlow.unitUri))}</option>`).join("")}</optgroup>`).join("")}</select></label>${availableOutputs.length ? "" : `<p class="inline-error">Add a product output to another activity before creating this connection.</p>`}${linkedOutput ? `<div class="internal-link-preview"><div><small>Supplier</small><strong>${escapeHtml(linkedOutput.activity.name)}</strong></div><div class="internal-link-edge"><span>${escapeHtml(linkedOutput.flow.label)} · ${escapeHtml(linkedOutput.flow.amount)} ${escapeHtml(unitLabel(linkedOutput.flow.unitUri))}</span><b>→</b><em>Internal connection</em><b>→</b><span>${escapeHtml(flow.label || "This input")}</span></div><div><small>Receiver</small><strong>${escapeHtml(activity.name)}</strong></div></div>` : ""}<details class="ontology-details compact-ontology"><summary>Ontology details</summary><p>ProductSystem → ActivityLink → Activity. Inputs and outputs remain separate Flow instances. Exact FlowType and source-dataset identities resolve the supplier; dcterms:source records the selected output.</p></details>` : ""}
       ${dppSourceCard(flow)}
       ${wasteOutput ? `<p class="method-note">The selected dataset adds the impact of treating this waste. Do not add it here again if the same treatment is already modelled as an activity.</p>` : ""}
       ${showBonsai ? `<div class="bonsai-controls single-combobox"><label>${wasteOutput ? "Select BONSAI waste treatment" : "Select BONSAI background dataset"}<input role="combobox" aria-expanded="${state.bonsai.openFlowId === flow.id}" type="search" value="${escapeHtml(flow.bonsaiSearch || displayBonsaiLabel(providerEntry?.label) || "")}" placeholder="${wasteOutput ? "Search BONSAI waste treatment or recycling" : "Search BONSAI process or code"}" data-bonsai-search-flow="${flow.id}" autocomplete="off" /></label>
@@ -1702,7 +1780,7 @@ function renderSummary() {
     status.textContent = text;
     status.classList.toggle("warning", Boolean(warning));
   };
-  const linkCount = flowLinks().length;
+  const linkCount = activityConnections().length;
   el("outcomeSystemValue").textContent = `${activities} ${activities === 1 ? "activity" : "activities"} · ${linkCount} connection${linkCount === 1 ? "" : "s"}`;
   const structureIssues = structureValidationIssues();
   const systemStatus = structureIssues.length ? "Needs review" : state.dataset.activities.length <= 1 ? "Single activity" : "Connected";
@@ -1710,7 +1788,7 @@ function renderSummary() {
   const climateInventoryPresent = climate.direct.length || climate.unresolvedBonsai.length || climate.nonBonsaiInventory.length || climate.elementaryRows.length;
   el("outcomeClimateValue").textContent = climate.elementaryRows.length ? "Separate contributions" : climate.calculated ? formatImpact(climate.directTotal) : "Not calculated";
   setOutcomeStatus("outcomeClimateStatus", climate.elementaryRows.length ? "EF direct / BONSAI background" : climate.calculated ? "BONSAI background per functional unit" : climateInventoryPresent ? conciseClimateReason(climate) : "No background inputs", !climate.calculated && Boolean(climateInventoryPresent));
-  const exportLabel = ready ? (state.dataset.complianceLevel === "EFCompliant" ? "EF profile selected" : "Ontology export ready") : "Draft";
+  const exportLabel = ready ? (state.dataset.complianceLevel === "EFCompliant" ? "EF profile selected" : "Inventory export ready") : "Draft";
   setOutcomeStatus("outcomeExportStatus", exportLabel, !ready);
   el("jsonExportState").textContent = exportLabel;
   el("ttlExportState").textContent = exportLabel;
@@ -1811,7 +1889,7 @@ function renderSemanticTree() {
   const node = el("semanticTree");
   if (!node) return;
   const allFlows = new Map(state.dataset.activities.flatMap((activity) => activity.flows.map((flow) => [flowUri(flow), flow])));
-  const linkItems = flowLinks().map((link) => `<li><strong>FlowLink</strong><span>${escapeHtml(allFlows.get(link.flowFrom)?.label || localName(link.flowFrom))} → ${escapeHtml(allFlows.get(link.toFlow)?.label || localName(link.toFlow))}</span></li>`).join("");
+  const linkItems = activityConnections().map((link) => `<li><strong>Supplier reference</strong><span>${escapeHtml(allFlows.get(link.outputFlowUri)?.label || localName(link.outputFlowUri))} → ${escapeHtml(allFlows.get(link.inputFlowUri)?.label || localName(link.inputFlowUri))}</span></li>`).join("");
   node.innerHTML = `<ul><li><strong>PEFStudy</strong><span>${escapeHtml(state.study.title)}</span><ul><li><strong>Goal</strong></li><li><strong>Scope</strong><ul><li><strong>FunctionalUnit</strong><span>${escapeHtml(state.study.functionalUnit.whatProvided)}</span></li><li><strong>SystemBoundary</strong></li></ul></li><li><strong>ProductSystem</strong><span>${escapeHtml(state.productSystem.name)}</span><ul>${state.dataset.activities.map((activity) => `<li><strong>ActivityLink → Activity</strong><span>${escapeHtml(activity.name)}</span><ul>${activity.flows.map((flow) => `<li>Flow · ${escapeHtml(flow.label)} · ${escapeHtml(flowTypeLabel(flow.flowTypeUri))}</li>`).join("")}</ul></li>`).join("")}${linkItems}</ul></li></ul>`;
 }
 
@@ -1842,7 +1920,7 @@ function renderGraph() {
         return `<div class="graph-provider-connection"><div class="graph-provider-node"><span>BONSAI provider</span><small>${escapeHtml(displayBonsaiLabel(entry?.label || "Provider pending"))} · ${escapeHtml(entry?.code || "code pending")} · ${escapeHtml(offering?.region || "region pending")}</small></div><b aria-hidden="true">→</b><div class="graph-provider-input"><small>Input</small><strong>${escapeHtml(flow.label)} · ${escapeHtml(flow.amount)} ${escapeHtml(unitLabel(flow.unitUri))}</strong></div></div>`;
       }).join("");
       const hiddenProviderCount = Math.max(0, backgroundInputs.length - 2);
-      return `<button type="button" class="graph-activity-node connection-node ${disconnected ? "disconnected" : ""}" data-select-activity="${activity.id}"><span class="graph-stage">${escapeHtml(stage)}</span><strong>${escapeHtml(activity.name || "Untitled activity")}</strong><small>${escapeHtml(localName(activity.geographyUri))} · ${inputs.length} input${inputs.length === 1 ? "" : "s"} · ${outputs.length} output${outputs.length === 1 ? "" : "s"}</small>${contribution ? `<em>${formatImpact(contribution)} climate contribution</em>` : ""}${backgroundNodes ? `<div class="graph-background-sources">${backgroundNodes}${hiddenProviderCount ? `<small>+ ${hiddenProviderCount} more background provider${hiddenProviderCount === 1 ? "" : "s"}</small>` : ""}</div>` : ""}${referenceOutput ? `<div class="graph-reference-output"><small>Reference output</small><strong>${escapeHtml(referenceOutput.label)} · ${escapeHtml(referenceOutput.amount)} ${escapeHtml(unitLabel(referenceOutput.unitUri))}</strong></div>` : ""}</button>`;
+      return `<button type="button" class="graph-activity-node connection-node ${disconnected ? "disconnected" : ""}" data-select-activity="${activity.id}"><span class="graph-stage">${escapeHtml(stage)}</span><strong>${escapeHtml(activity.name || "Untitled activity")}</strong><small>${escapeHtml(localName(activity.geographyUri))} · ${inputs.length} input${inputs.length === 1 ? "" : "s"} · ${outputs.length} output${outputs.length === 1 ? "" : "s"}</small>${contribution ? `<em>${formatImpact(contribution)} BONSAI background</em>` : ""}${backgroundNodes ? `<div class="graph-background-sources">${backgroundNodes}${hiddenProviderCount ? `<small>+ ${hiddenProviderCount} more background provider${hiddenProviderCount === 1 ? "" : "s"}</small>` : ""}</div>` : ""}${referenceOutput ? `<div class="graph-reference-output"><small>Reference output</small><strong>${escapeHtml(referenceOutput.label)} · ${escapeHtml(referenceOutput.amount)} ${escapeHtml(unitLabel(referenceOutput.unitUri))}</strong></div>` : ""}</button>`;
     }
     const limitedRows = (flows, renderer) => {
       const shown = flows.slice(0, 4).map(renderer);
@@ -1860,7 +1938,7 @@ function renderGraph() {
       const mapped = flow.sourceMode === "bonsai" ? `<div class="graph-provider-node output-map"><span>BONSAI mapping</span><small>${escapeHtml(entry?.code || "code pending")} · ${escapeHtml(offering?.region || "region pending")}</small></div>` : "";
       return `<li class="${flow.determining ? "determining-output" : ""}"><span>${escapeHtml(flow.label || "Unnamed output")} · ${escapeHtml(flow.amount)} ${escapeHtml(unitLabel(flow.unitUri))}</span>${flow.determining ? "<small>Reference output</small>" : ""}${mapped}</li>`;
     }) || "<li><span>No outputs</span></li>";
-    return `<button type="button" class="graph-activity-node ${disconnected ? "disconnected" : ""}" data-select-activity="${activity.id}"><span class="graph-stage">${escapeHtml(stage)}</span><strong>${escapeHtml(activity.name || "Untitled activity")}</strong><small>${escapeHtml(localName(activity.geographyUri))}</small>${contribution ? `<em>${formatImpact(contribution)} climate contribution</em>` : ""}<div class="graph-flow-group"><b>${inputs.length} input${inputs.length === 1 ? "" : "s"}</b><ul>${inputRows}</ul></div><div class="graph-flow-group outputs"><b>${outputs.length} output${outputs.length === 1 ? "" : "s"}</b><ul>${outputRows}</ul></div></button>`;
+    return `<button type="button" class="graph-activity-node ${disconnected ? "disconnected" : ""}" data-select-activity="${activity.id}"><span class="graph-stage">${escapeHtml(stage)}</span><strong>${escapeHtml(activity.name || "Untitled activity")}</strong><small>${escapeHtml(localName(activity.geographyUri))}</small>${contribution ? `<em>${formatImpact(contribution)} BONSAI background</em>` : ""}<div class="graph-flow-group"><b>${inputs.length} input${inputs.length === 1 ? "" : "s"}</b><ul>${inputRows}</ul></div><div class="graph-flow-group outputs"><b>${outputs.length} output${outputs.length === 1 ? "" : "s"}</b><ul>${outputRows}</ul></div></button>`;
   };
   const connectionRows = connections.map(({ sourceActivity, sourceOutput, receivingActivity, input }, index) => `<article class="network-connection"><div class="connection-role"><span>Supplier</span>${activityNode(sourceActivity, false, true)}</div><div class="connection-edge"><small>Connection ${index + 1}</small><div class="edge-flow output"><span>Output</span><strong>${escapeHtml(sourceOutput.label)}</strong><em>${escapeHtml(sourceOutput.amount)} ${escapeHtml(unitLabel(sourceOutput.unitUri))}</em></div><div class="edge-arrow"><b>→</b><span>Internal connection</span><b>→</b></div><div class="edge-flow input"><span>Input</span><strong>${escapeHtml(input.label)}</strong><em>${escapeHtml(input.amount)} ${escapeHtml(unitLabel(input.unitUri))}</em></div></div><div class="connection-role"><span>Receiver</span>${activityNode(receivingActivity, false, true)}</div></article>`).join("");
   const standalone = state.dataset.activities.length === 1 ? `<div class="network-main standalone-network"><section class="network-column"><span>Product system activity</span>${activityNode(state.dataset.activities[0])}</section></div>` : "";
@@ -1888,7 +1966,6 @@ function exportGraph() {
   const english = (value) => ({ "@value": String(value), "@language": "en" });
   const xsdString = (value) => ({ "@value": String(value), "@type": `${NS.xsd}string` });
   const activityLinkUris = state.dataset.activities.map((activity) => activity.activityLinkUri || `${namespace}activity-link-${slug(activity.id)}`);
-  const links = flowLinks();
   const graph = [
   {
     "@id": study.uri, "@type": `${NS.pefStudy}PEFStudy`, [`${NS.dcterms}title`]: english(study.title),
@@ -1914,8 +1991,8 @@ function exportGraph() {
   {
     "@id": functionalUnit.uri, "@type": `${NS.pefStudy}FunctionalUnit`,
     [`${NS.pefStudy}whatProvided`]: xsdString(functionalUnit.whatProvided), [`${NS.pefStudy}howWellProvided`]: xsdString(functionalUnit.howWellProvided),
-    [`${NS.pefStudy}howMuchProvided`]: { "@type": `${NS.om}Measure`, [`${NS.om}hasUnit`]: { "@id": functionalUnit.howMuchUnitUri }, [`${NS.om}hasNumericalValue`]: { "@value": functionalUnit.howMuchValue, "@type": `${NS.xsd}decimal` } },
-    [`${NS.pefStudy}howLongProvided`]: { "@type": `${NS.om}Measure`, [`${NS.om}hasUnit`]: { "@id": functionalUnit.howLongUnitUri }, [`${NS.om}hasNumericalValue`]: { "@value": functionalUnit.howLongValue, "@type": `${NS.xsd}decimal` } },
+    [`${NS.pefStudy}howMuchProvided`]: { "@type": `${NS.om}Measure`, [`${NS.om}hasUnit`]: { "@id": functionalUnit.howMuchUnitUri }, [`${NS.om}hasNumericalValue`]: { "@value": decimalLexical(functionalUnit.howMuchValue), "@type": `${NS.xsd}decimal` } },
+    [`${NS.pefStudy}howLongProvided`]: { "@type": `${NS.om}Measure`, [`${NS.om}hasUnit`]: { "@id": functionalUnit.howLongUnitUri }, [`${NS.om}hasNumericalValue`]: { "@value": decimalLexical(functionalUnit.howLongValue), "@type": `${NS.xsd}decimal` } },
     [`${NS.pefStudy}hasReferenceFlow`]: { "@id": functionalUnit.referenceFlowUri },
     [`${NS.pefStudy}RFtoFUConversion`]: { "@value": functionalUnit.conversionFactor, "@type": `${NS.xsd}double` },
     ...(functionalUnit.notCoveredAspect ? { [`${NS.pefStudy}notCoveredAspect`]: xsdString(functionalUnit.notCoveredAspect) } : {})
@@ -1929,6 +2006,7 @@ function exportGraph() {
   },
   {
     "@id": datasetUri, "@type": `${NS.dataset}LCIDataset`, [`${NS.dcterms}title`]: english(state.dataset.title),
+    ...(state.dataset.note ? { [`${NS.dcterms}description`]: state.dataset.note } : {}),
     [`${NS.dataset}hasDatasetType`]: { "@id": `${NS.dataset}${state.dataset.type}` },
     [`${NS.dataset}hasComplianceLevel`]: { "@id": `${NS.dataset}${state.dataset.complianceLevel}` },
     [`${NS.dataset}containsActivity`]: state.dataset.activities.map((activity) => ({ "@id": activity.uri || `${namespace}${slug(activity.id)}` }))
@@ -1936,16 +2014,13 @@ function exportGraph() {
   graph.push({
     "@id": state.productSystem.uri, "@type": `${NS.productSystem}ProductSystem`,
     [`${NS.rdfs}label`]: english(state.productSystem.name),
-    [`${NS.productSystem}hasActivityLink`]: activityLinkUris.map((uri) => ({ "@id": uri })),
-    ...(links.length ? { [`${NS.productSystem}hasFlowLink`]: links.map((link) => ({ "@id": link.uri })) } : {})
+    [`${NS.productSystem}hasActivityLink`]: activityLinkUris.map((uri) => ({ "@id": uri }))
   });
-  links.forEach((link) => graph.push({
-    "@id": link.uri, "@type": `${NS.productSystem}FlowLink`,
-    [`${NS.productSystem}flowFrom`]: { "@id": link.flowFrom },
-    [`${NS.productSystem}toFlow`]: { "@id": link.toFlow }
-  }));
   state.flowTypes.filter(dppFlowTypeNeedsExport).forEach((item) => graph.push({
-    "@id": item.uri, "@type": `${NS.flow}${item.className}`, [`${NS.flow}sourcedFrom`]: { "@id": item.sourcedFromUri || datasetUri }, [`${NS.rdfs}label`]: english(item.label)
+    "@id": item.uri, "@type": `${NS.flow}${item.className}`,
+    ...((!item.uri.startsWith(NS.elementary) && !item.uri.startsWith(NS.bonsai)) || item.sourcedFromUri ? { [`${NS.flow}sourcedFrom`]: { "@id": item.sourcedFromUri || datasetUri } } : {}),
+    ...(item.schemeUri ? { "http://www.w3.org/2004/02/skos/core#inScheme": { "@id": item.schemeUri } } : {}),
+    [`${NS.rdfs}label`]: english(item.label)
   }));
   state.dataset.activities.forEach((activity) => {
     const activityUri = activity.uri || `${namespace}${slug(activity.id)}`;
@@ -1966,19 +2041,20 @@ function exportGraph() {
       ...(determining ? { [`${NS.activity}hasDeterminingFlow`]: { "@id": determining.uri || `${namespace}${slug(determining.id)}` } } : {})
     });
     activity.flows.forEach((flow) => {
-      const providerActivityUri = selectedBonsaiOffering(flow)?.activityUri || flow.providerActivityUri;
+      const providerActivityUri = inventorySourceUri(flow);
       graph.push({
       "@id": flow.uri || `${namespace}${slug(flow.id)}`, "@type": `${NS.flow}Flow`, [`${NS.flow}hasFlowType`]: { "@id": flow.flowTypeUri },
-      [`${NS.flow}contextualLabel`]: english(flow.label),
+      [`${NS.flow}contextualLabel`]: xsdString(flow.label),
       [flow.direction === "output" ? `${NS.activity}outputOf` : `${NS.activity}inputOf`]: { "@id": activityUri },
       ...(providerActivityUri ? { [`${NS.dcterms}source`]: { "@id": providerActivityUri } } : {}),
       ...(flow.connectedDppUri ? { [`${DPP_NS}connectedDPP`]: { "@id": flow.connectedDppUri } } : {}),
       ...(flow.dppPrevious ? { [`${DPP_NS}previousInput`]: JSON.stringify(flow.dppPrevious) } : {}),
       ...(flow.note ? { [`${NS.dcterms}description`]: flow.note } : {}),
+      ...(flow.derivationTypeUri ? { [`${NS.flow}hasDerivationType`]: { "@id": flow.derivationTypeUri } } : {}),
       [`${NS.flow}hasMeasure`]: {
         "@type": `${NS.om}Measure`,
         [`${NS.om}hasUnit`]: { "@id": flow.unitUri },
-        [`${NS.om}hasNumericalValue`]: { "@value": flow.amount, "@type": `${NS.xsd}decimal` }
+        [`${NS.om}hasNumericalValue`]: { "@value": decimalLexical(flow.amount), "@type": `${NS.xsd}decimal` }
       }
     });
     });
@@ -1987,7 +2063,11 @@ function exportGraph() {
     if (!graph.some((node) => node["@id"] === activity.activityTypeUri)) graph.push({ "@id": activity.activityTypeUri, "@type": `${NS.activity}ActivityType`, [`${NS.rdfs}label`]: activity.activityTypeLabel || activity.name });
   });
   const systemNode = graph.find((node) => node["@id"] === state.productSystem.uri);
-  if (state.productSystem.systemDiagramUri) systemNode[`${NS.productSystem}hasSystemDiagram`] = { "@id": state.productSystem.systemDiagramUri };
+  if (state.productSystem.systemDiagramUri) {
+    systemNode[`${NS.productSystem}hasSystemDiagram`] = { "@id": state.productSystem.systemDiagramUri };
+    graph.push({ "@id": state.productSystem.systemDiagramUri, "@type": `${NS.foaf}Image` });
+  }
+  [...new Set(state.dataset.activities.map(activity => activity.geographyUri).filter(Boolean))].forEach(uri => graph.push({ "@id": uri, "@type": `${NS.activity}Geography` }));
   graph.push(...dppMetadataGraph());
   return graph;
 }
@@ -2002,6 +2082,8 @@ function elementaryResultGraph() {
   const refs = rows.map(({ flow }) => ({ "@id": `${flowUri(flow)}-ef31-climate-contribution` }));
   return [{ "@id": state.study.uri, [`${NS.pefStudy}hasContributionResult`]: refs }, {
     "@id": method.categoryUri, [`${NS.lcia}calculatedByMethod`]: { "@id": method.uri }, [`${NS.lcia}hasIndicatorUnit`]: { "@id": method.resultUnitUri }
+  }, {
+    "@id": method.resultUnitUri, "@type": `${NS.lcia}ImpactIndicatorUnit`
   }, {
     "@id": method.uri, "@type": `${NS.lcia}ImpactAssessmentMethod`, [`${NS.dcterms}identifier`]: method.uuid,
     [`${NS.dcterms}hasVersion`]: method.version, [`${NS.rdfs}label`]: method.profile,
@@ -2058,7 +2140,7 @@ function toTtl() {
   lines.push(`${iri(scope.uri)} a ps:Scope ;`);
   scopeProperties.forEach(([property, value], index) => lines.push(`  ${property} ${value}${index === scopeProperties.length - 1 ? " ." : " ;"}`));
   lines.push("");
-  lines.push(`${iri(functionalUnit.uri)} a ps:FunctionalUnit ;`, `  ps:whatProvided "${escapeTtl(functionalUnit.whatProvided)}"^^xsd:string ;`, `  ps:howWellProvided "${escapeTtl(functionalUnit.howWellProvided)}"^^xsd:string ;`, `  ps:howMuchProvided [ a om:Measure ; om:hasUnit ${iri(functionalUnit.howMuchUnitUri)} ; om:hasNumericalValue "${escapeTtl(functionalUnit.howMuchValue)}"^^xsd:decimal ] ;`, `  ps:howLongProvided [ a om:Measure ; om:hasUnit ${iri(functionalUnit.howLongUnitUri)} ; om:hasNumericalValue "${escapeTtl(functionalUnit.howLongValue)}"^^xsd:decimal ] ;`, `  ps:hasReferenceFlow ${iri(functionalUnit.referenceFlowUri)} ;`, `  ps:RFtoFUConversion "${escapeTtl(functionalUnit.conversionFactor)}"^^xsd:double${functionalUnit.notCoveredAspect ? " ;" : " ."}`);
+  lines.push(`${iri(functionalUnit.uri)} a ps:FunctionalUnit ;`, `  ps:whatProvided "${escapeTtl(functionalUnit.whatProvided)}"^^xsd:string ;`, `  ps:howWellProvided "${escapeTtl(functionalUnit.howWellProvided)}"^^xsd:string ;`, `  ps:howMuchProvided [ a om:Measure ; om:hasUnit ${iri(functionalUnit.howMuchUnitUri)} ; om:hasNumericalValue "${escapeTtl(decimalLexical(functionalUnit.howMuchValue))}"^^xsd:decimal ] ;`, `  ps:howLongProvided [ a om:Measure ; om:hasUnit ${iri(functionalUnit.howLongUnitUri)} ; om:hasNumericalValue "${escapeTtl(decimalLexical(functionalUnit.howLongValue))}"^^xsd:decimal ] ;`, `  ps:hasReferenceFlow ${iri(functionalUnit.referenceFlowUri)} ;`, `  ps:RFtoFUConversion "${escapeTtl(functionalUnit.conversionFactor)}"^^xsd:double${functionalUnit.notCoveredAspect ? " ;" : " ."}`);
   if (functionalUnit.notCoveredAspect) lines.push(`  ps:notCoveredAspect "${escapeTtl(functionalUnit.notCoveredAspect)}"^^xsd:string .`);
   lines.push("");
   lines.push(`${iri(systemBoundary.uri)} a ps:SystemBoundary ;`, `  ps:hasBoundaryType ${iri(systemBoundary.boundaryTypeUri)} ;`, `  ps:cutOffCriteria "${escapeTtl(systemBoundary.cutOffCriteria)}"^^xsd:string ;`, `  ps:hasJustification "${escapeTtl(systemBoundary.justification)}"^^xsd:string${systemBoundary.excludesActivity || systemBoundary.exclusionJustification ? " ;" : " ."}`);
@@ -2071,17 +2153,16 @@ function toTtl() {
   lines.push("");
 
   const activityLinkUris = state.dataset.activities.map((activity) => activity.activityLinkUri || `${namespace}activity-link-${slug(activity.id)}`);
-  const links = flowLinks();
-  lines.push(`${iri(state.productSystem.uri)} a prs:ProductSystem ;`, `  rdfs:label "${escapeTtl(state.productSystem.name)}"@en${activityLinkUris.length || links.length ? " ;" : " ."}`);
-  if (activityLinkUris.length) lines.push(`  prs:hasActivityLink ${activityLinkUris.map(iri).join(", ")}${links.length ? " ;" : " ."}`);
-  if (links.length) lines.push(`  prs:hasFlowLink ${links.map((link) => iri(link.uri)).join(", ")} .`);
+  lines.push(`${iri(state.productSystem.uri)} a prs:ProductSystem ;`, `  rdfs:label "${escapeTtl(state.productSystem.name)}"@en${activityLinkUris.length ? " ;" : " ."}`);
+  if (activityLinkUris.length) lines.push(`  prs:hasActivityLink ${activityLinkUris.map(iri).join(", ")} .`);
   lines.push("");
 
-  links.forEach((link) => lines.push(`${iri(link.uri)} a prs:FlowLink ;`, `  prs:flowFrom ${iri(link.flowFrom)} ;`, `  prs:toFlow ${iri(link.toFlow)} .`, ""));
-
-  state.flowTypes.filter(dppFlowTypeNeedsExport).forEach((item) => lines.push(
-    `${iri(item.uri)} a flow:${item.className} ;`, `  flow:sourcedFrom ${iri(item.sourcedFromUri || datasetUri)} ;`, `  rdfs:label "${escapeTtl(item.label)}"@en .`, ""
-  ));
+  state.flowTypes.filter(dppFlowTypeNeedsExport).forEach((item) => {
+    lines.push(`${iri(item.uri)} a flow:${item.className} ;`);
+    if ((!item.uri.startsWith(NS.elementary) && !item.uri.startsWith(NS.bonsai)) || item.sourcedFromUri) lines.push(`  flow:sourcedFrom ${iri(item.sourcedFromUri || datasetUri)} ;`);
+    if (item.schemeUri) lines.push(`  ${iri("http://www.w3.org/2004/02/skos/core#inScheme")} ${iri(item.schemeUri)} ;`);
+    lines.push(`  rdfs:label "${escapeTtl(item.label)}"@en .`, "");
+  });
   state.dataset.activities.forEach((activity) => {
     const activityUri = activity.uri || `${namespace}${slug(activity.id)}`;
     const activityLinkUri = activity.activityLinkUri || `${namespace}activity-link-${slug(activity.id)}`;
@@ -2093,12 +2174,13 @@ function toTtl() {
     if (determining) lines.push(`  act:hasDeterminingFlow ${iri(determining.uri || `${namespace}${slug(determining.id)}`)} .`);
     lines.push("");
     activity.flows.forEach((flow) => {
-      const providerActivityUri = selectedBonsaiOffering(flow)?.activityUri || flow.providerActivityUri;
+      const providerActivityUri = inventorySourceUri(flow);
       lines.push(
         `${iri(flow.uri || `${namespace}${slug(flow.id)}`)} a flow:Flow ;`, `  flow:hasFlowType ${iri(flow.flowTypeUri)} ;`,
-        `  flow:contextualLabel "${escapeTtl(flow.label)}"@en ;`, `  ${flow.direction === "output" ? "act:outputOf" : "act:inputOf"} ${iri(activityUri)} ;`,
+        `  flow:contextualLabel "${escapeTtl(flow.label)}"^^xsd:string ;`, `  ${flow.direction === "output" ? "act:outputOf" : "act:inputOf"} ${iri(activityUri)} ;`,
         ...(providerActivityUri ? [`  dcterms:source ${iri(providerActivityUri)} ;`] : []),
-        `  flow:hasMeasure [ a om:Measure ; om:hasUnit ${iri(flow.unitUri)} ; om:hasNumericalValue "${escapeTtl(flow.amount)}"^^xsd:decimal ] .`, ""
+        ...(flow.derivationTypeUri ? [`  flow:hasDerivationType ${iri(flow.derivationTypeUri)} ;`] : []),
+        `  flow:hasMeasure [ a om:Measure ; om:hasUnit ${iri(flow.unitUri)} ; om:hasNumericalValue "${escapeTtl(decimalLexical(flow.amount))}"^^xsd:decimal ] .`, ""
       );
     });
   });
@@ -2115,7 +2197,9 @@ function toTtl() {
       if (flow.note) lines.push(`${iri(flow.uri)} dcterms:description "${escapeTtl(flow.note)}" .`);
     });
   });
-  if (state.productSystem.systemDiagramUri) lines.push(`${iri(state.productSystem.uri)} prs:hasSystemDiagram ${iri(state.productSystem.systemDiagramUri)} .`);
+  if (state.productSystem.systemDiagramUri) lines.push(`${iri(state.productSystem.uri)} prs:hasSystemDiagram ${iri(state.productSystem.systemDiagramUri)} .`, `${iri(state.productSystem.systemDiagramUri)} a foaf:Image .`);
+  if (state.dataset.note) lines.push(`${iri(datasetUri)} dcterms:description "${escapeTtl(state.dataset.note)}" .`);
+  [...new Set(state.dataset.activities.map(activity => activity.geographyUri).filter(Boolean))].forEach(uri => lines.push(`${iri(uri)} a act:Geography .`));
   lines.push(dppMetadataTtl());
   lines.push(elementaryResultTtl());
   return lines.join("\n");
@@ -2162,10 +2246,14 @@ function loadUploadedTtl(file) {
   reader.addEventListener("load", () => {
     try { applyImportedTtl(String(reader.result || ""), file.name); }
     catch (error) {
-      state.compatReport = { source: file.name, imported: [], warnings: [], unsupported: [{ title: "Import failed", detail: error.message }], stats: { statements: 0, datasets: 0, activities: 0, flows: 0, flowTypes: 0 } };
+      state.compatReport = { source: file.name, imported: [], warnings: [], unsupported: [{ title: "Import rejected", detail: `${error.message} The previously loaded inventory has been kept.` }], stats: { statements: 0, datasets: 0, activities: 0, flows: 0, flowTypes: 0 } };
       state.activeStep = "review";
       render();
-      el("compatSection")?.setAttribute("open", "");
+      const section = el("compatSection");
+      section?.setAttribute("open", "");
+      section?.setAttribute("tabindex", "-1");
+      section?.scrollIntoView({ block: "center" });
+      section?.focus({ preventScroll: true });
     }
   });
   reader.readAsText(file);

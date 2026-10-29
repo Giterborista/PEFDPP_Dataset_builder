@@ -53,7 +53,7 @@ Checked against the supplied publication `pefstudy/lcia.ttl` version `0.1.0`, st
 
 Result descriptions identify the study functional unit, direct-only coverage, CF, location and scale. Only individually resolved contributions with valid demand are exported. Unresolved exchanges remain inventory and are listed in review. No full `hasLCIAResult` assertion is generated from partial results.
 
-Imports recompute results from inventory rather than trusting stale values. Turtle and JSON-LD serialize the same new result graph. This validates the new result mapping, not every pre-existing app conformance gap. The FlowLink/DPP extension remains explicitly declared in `ontology/dpp-connections.ttl` and separate from the publication ontology.
+Imports recompute results from inventory rather than trusting stale values. Turtle and JSON-LD serialize the same new result graph. This validates the new result mapping, not every pre-existing app conformance gap. Foreground connections now use the publication-source resolution profile in `docs/publication-connections.md`; no FlowLink terms are exported. The separate nested-DPP provenance extension remains declared in `ontology/dpp-connections.ttl` and is not part of the publication ontology.
 
 ## Verification and PV demonstration
 

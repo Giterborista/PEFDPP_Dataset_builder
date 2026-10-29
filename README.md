@@ -22,7 +22,7 @@ The prototype lets a user define:
 
 This version has no Brightway and no backend. It reports static BONSAI v2.1.6 GWP100 background contributions separately from direct EF 3.1 Climate change (IPCC 2021, GWP100) contributions. Their method equivalence and inventory overlap are unverified, so no combined footprint is presented. It is deployable as a Render Static Site. See [characterisation and ontology mapping](docs/climate-characterisation.md).
 
-The included example models two connected foreground activities. A 2 kg steel input is supplied by the global BONSAI steel market (`M_STEL`), converted to its tonnes reference unit, and contributes 6.58 kg CO2e per functional unit. The first activity's reference output is linked to the second activity through a distinct `FlowLink` output/input pair. If the upstream activity produces two units per activity run while the downstream activity needs one, its background demand and climate contribution are scaled by one half.
+The included example models two connected foreground activities. A 2 kg steel input is supplied by the global BONSAI steel market (`M_STEL`), converted to its tonnes reference unit, and contributes 6.58 kg CO2e per functional unit. The supplying output and receiving input remain distinct `Flow` instances, connected through exact FlowType/source-dataset identity and an exact output source reference. If the upstream activity produces two units per activity run while the downstream activity needs one, its background demand and climate contribution are scaled by one half.
 
 ## Run locally
 
@@ -51,7 +51,7 @@ The browser does not maintain separate hardcoded geography or unit lists. The el
 
 The builder preserves the implemented PEFDPP classes, predicates, units, geographies, FlowType URIs and BONSAI Activity URIs. It is not yet a complete conformance implementation of the full publication ontology:
 
-- the foreground connection terms `FlowLink`, `hasFlowLink`, `flowFrom` and `toFlow` are used by the MVP but are not declared in the current publication ontology;
+- foreground connections now use publication relationships; FlowLink terms are rejected on import and are never exported. The exact source-dataset/FlowType resolution rule is documented in [publication connections](docs/publication-connections.md);
 - the publication ontology marks `Activity.hasActivityType`, `ProductSystem.hasSystemDiagram`, `PEFStudy.hasAggregatedLCI` and `PEFStudy.hasLCIAResult` as PEF-required, but the current form does not collect or export these values;
 - direct elementary exchanges are characterised for total EF 3.1 Climate change only; other EF categories, normalisation and weighting are not calculated. BONSAI and direct EF contributions remain separate; no complete study LCIAResult is asserted from partial contributions.
 
@@ -67,7 +67,7 @@ contributing activities, source assumptions and background-data readiness.
 Only the inventory that supplies the selected output is attached. A connected
 source can itself contain connected DPPs, and a shared supplier is stored once.
 
-Calculations follow the ordinary supplying-output → receiving-input FlowLinks:
+Calculations follow the exact supplier references described in [publication connections](docs/publication-connections.md):
 supplier scale = receiving activity scale × required input / supplier output.
 The parent study stays authoritative; source functional-unit quantities and
 durations are retained as provenance and are not multiplied into its inventory.
@@ -80,7 +80,7 @@ previous input and removes imported activities no longer needed elsewhere.
 Quantity changes propagate through nested connections. Exports preserve source
 identities, goal/scope snapshots, notes, activity types and provider references.
 The local schema extension is [ontology/dpp-connections.ttl](ontology/dpp-connections.ttl);
-it declares FlowLinks and the DPP provenance terms used by this application.
+it declares only the separate DPP provenance terms used for nested passport management. Those provenance extensions are not a claim of full publication-only conformance. No FlowLink terms are declared or emitted.
 
 Files must use the app's explicit Flow/Activity inventory shape and inline OM
 measures. Legacy workshop JSON and remote JSON-LD contexts are not supported.
@@ -126,3 +126,7 @@ unit conversion, including any credit already present in the selected dataset.
 Do not also add the same treatment as a separate foreground activity. Incoming
 waste is a separate modelling case and is not assigned an outgoing-treatment
 burden by this control.
+
+## PV publication examples
+
+Use [the full PV demonstration](examples/pv_full_publication.ttl) (42 activities, 466 exchanges) or [the simplified selected-inputs PV case](examples/pv_simplified_publication.ttl) (3 activities, 14 exchanges). Both use publication relationships only. Their original quantities and separate background/direct impact reporting are preserved. Files using the removed FlowLink vocabulary are rejected, including nested DPP uploads.

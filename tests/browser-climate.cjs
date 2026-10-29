@@ -1,7 +1,7 @@
 // Desktop QA: real import, selector, review, demand edits and both downloads.
 // Run against a local static server: node tests/browser-climate.cjs URL
 const {chromium} = require(process.env.PLAYWRIGHT_PATH || 'playwright');
-const {engine} = require('./engine.cjs');
+const {engine,root} = require('./engine.cjs');
 const fs = require('node:fs');
 const assert = require('node:assert/strict');
 (async()=>{
@@ -37,7 +37,7 @@ const assert = require('node:assert/strict');
   assert.equal(imported.value('climateReport().elementaryTotal'),2);
  }
  // Actual PV file upload and dense review. Missing CFs must remain visible.
- await page.locator('#ttlUpload').setInputFiles('/Users/bafr/Desktop/PV_panel_manufacturing_DEMO_full_inventory_assumptions.ttl');
+ await page.locator('#ttlUpload').setInputFiles(root+'/examples/pv_full_publication.ttl');
  await page.waitForFunction(()=>state.dataset.activities.length===42);
  await page.locator('[data-step="review"]').click();
  const pv=await page.evaluate(()=>{const r=climateReport();return {elementary:r.elementaryRows.length,unresolved:r.uncharacterisedElementary.length,calculated:r.calculated};});

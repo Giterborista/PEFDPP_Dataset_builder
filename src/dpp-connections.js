@@ -1,4 +1,4 @@
-/* DPP composition uses ordinary FlowLinks for calculation and separate provenance
+/* DPP composition uses exact supplying-output references and separate provenance
  * records for source passports. No remote URLs are fetched when a file is linked. */
 const DPP_NS = "https://w3id.org/cerise-see/dpp-connections#";
 const dppClone = (value) => JSON.parse(JSON.stringify(value));
@@ -40,7 +40,7 @@ function dppReadText(text) {
 }
 
 function dppFlowTypeNeedsExport(item) {
-  return !item.ontologyManaged || !(item.uri.startsWith(NS.bonsai) || item.uri.startsWith(NS.elementary));
+  return item.className === "ElementaryFlow" || item.preserveDefinition || !item.ontologyManaged || !(item.uri.startsWith(NS.bonsai) || item.uri.startsWith(NS.elementary));
 }
 
 function dppParseMetadata(nodes, prefixes, datasetUri, activities) {

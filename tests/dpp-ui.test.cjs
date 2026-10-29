@@ -116,6 +116,15 @@ test('malformed upload gives a disabled confirmation and leaves the inventory in
   u.click('dppCancel');assert.equal(u.node('dppDialog').open,false);
 });
 
+test('nested DPP dialog rejects removed FlowLink vocabulary without changing the model',async()=>{
+  const u=ui(),before=u.e.export();
+  const removed=fixture('removed-supplier')+'\n<https://example.org/removed> a <https://w3id.org/mintjesba/pefdpp/product-system#FlowLink> .';
+  await u.upload(removed);
+  assert.equal(u.node('dppConfirm').disabled,true);
+  assert.match(u.node('dppError').textContent,/FlowLink terms outside the publication ontology/);
+  u.click('dppConfirm');assert.equal(u.e.export(),before);
+});
+
 test('cancel button and dialog cancellation never commit a pending supplier', async()=>{
   const u=ui(), before=u.e.export();await u.upload(fixture('cartridge'));
   u.click('dppCancel');u.click('dppConfirm');assert.equal(u.e.export(),before);
@@ -123,19 +132,19 @@ test('cancel button and dialog cancellation never commit a pending supplier', as
   u.click('dppConfirm');assert.equal(u.e.export(),before);
 });
 
-test('project printer-to-cartridge upload follows the actual dialog handlers without unmatched inputs', async(t)=>{
+test('project printer upload rejects removed vocabulary before starting a nested connection', async(t)=>{
   const folder=path.resolve(root,'../../04_CASE-STUDIES-AND-WORKING-DATA/Lexmark-printer/2026-10-12_nested_DPP_demo');
   if(!fs.existsSync(folder))return t.skip('Local Lexmark project fixture is not included in the public repository.');
-  const u=ui();u.e.load(fs.readFileSync(path.join(folder,'01_Printer_DPP_import_first.ttl'),'utf8'));
+  const u=ui(),text=fs.readFileSync(path.join(folder,'01_Printer_DPP_import_first.ttl'),'utf8');if(/prs:FlowLink/.test(text)){assert.throws(()=>u.e.load(text),/FlowLink terms outside/);return;}u.e.load(text);
   // This is the printer input a person expands before pressing Connect DPP.
   u.e.run(`state.dataset.activities.sort((a,b)=>Number(b.name.startsWith('Printer assembly'))-Number(a.name.startsWith('Printer assembly')));state.dataset.activities[0].flows.sort((a,b)=>Number(b.uri.endsWith('cartridge-input'))-Number(a.uri.endsWith('cartridge-input')))`);
   assert.equal(u.e.value('state.dataset.activities[0].flows[0].sourceMode'),'bonsai');
   u.chooseSource('external');
-  await u.upload(fs.readFileSync(path.join(folder,'02_Cartridge_DPP_nested.ttl'),'utf8'));
+  const supplier=fs.readFileSync(path.join(folder,'02_Cartridge_DPP_nested.ttl'),'utf8');const before=u.e.export();await u.upload(supplier);if(/prs:FlowLink/.test(supplier)){assert.equal(u.node('dppConfirm').disabled,true);assert.match(u.node('dppError').textContent,/FlowLink terms outside/);assert.equal(u.e.export(),before);return;}
   assert.equal(u.node('dppAmount').value,'');assert.match(u.node('dppPreview').textContent,/2 of 2 activities/);
   assert.match(u.node('dppPreview').textContent,/0 unresolved/);
   u.node('dppAmount').value='1';u.click('dppConfirm');
-  assert.equal(u.e.value('state.dataset.activities.length'),8);assert.equal(u.e.value('flowLinks().length'),9);
+  assert.equal(u.e.value('state.dataset.activities.length'),8);assert.equal(u.e.value('activityConnections().length'),9);
   assert.equal(u.e.value('state.connectedDpps.length'),2);assert.deepEqual(u.e.value('validationIssues()'),[]);
   const expected=JSON.parse(fs.readFileSync(path.join(folder,'verification.json'))).climateKg;
   assert.ok(Math.abs(u.e.value('climateReport().directTotal')-expected)<1e-8);

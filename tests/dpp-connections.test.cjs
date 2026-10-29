@@ -78,17 +78,17 @@ test('default two-activity steel example remains calculated',()=>{
   const e=engine();near(total(e),6.57507178);
 });
 test('project PV selected input example has stable impact and no round-trip type warnings',(t)=>{
-  const file=path.resolve(root,'../../04_CASE-STUDIES-AND-WORKING-DATA/PV-panel/calculator_upload_2026-10-08/01_PV_UPLOAD_selected_inputs.ttl');
+  const file=path.join(root,'examples/pv_simplified_publication.ttl');
   if(!fs.existsSync(file)) return t.skip('Local CE-RISE project fixture is not included in the public repository.');
   const e=engine();e.load(fs.readFileSync(file,'utf8'));near(total(e),48.42400013063052);
   const f=engine();f.load(e.export());near(total(f),total(e));assert.deepEqual(f.value('state.compatReport.warnings'),[]);
 });
 test('project full PV preserves all external providers and internal connections',(t)=>{
-  const file=path.resolve(root,'../../04_CASE-STUDIES-AND-WORKING-DATA/PV-panel/calculator_upload_2026-10-08/02_PV_FULL_inventory_connected.ttl');
+  const file='/Users/bafr/Desktop/02_PV_FULL_inventory_publication.ttl';
   if(!fs.existsSync(file)) return t.skip('Local CE-RISE project fixture is not included in the public repository.');
   const e=engine();e.load(fs.readFileSync(file,'utf8'));const before=e.value('state.dataset.activities.flatMap(a=>a.flows).filter(f=>f.providerActivityUri).map(f=>f.providerActivityUri).sort()');
   const f=engine();f.load(e.export());assert.deepEqual(f.value('state.dataset.activities.flatMap(a=>a.flows).filter(f=>f.providerActivityUri).map(f=>f.providerActivityUri).sort()'),before);
-  assert.equal(f.value('flowLinks().length'),12);assert.deepEqual(f.value('state.compatReport.warnings'),[]);
+  assert.equal(f.value('activityConnections().length'),12);assert.deepEqual(f.value('state.compatReport.warnings'),[]);
 });
 test('attaching a nested DPP never changes the parent study definition',()=>{
   const e=setup();const study=e.value('state.study');e.prepare(fixture('cartridge'));e.attach(1);assert.deepEqual(e.value('state.study'),study);
@@ -139,33 +139,34 @@ test('nested root containing this printer is detected before any mutation',()=>{
   const child=engine();child.load(fixture('cartridge',{raw:false}));child.prepare(fixture('printer'));child.attach(1);
   const e=setup();const before=e.export();e.prepare(child.export());assert.throws(()=>e.attach(1),/itself/);assert.equal(e.export(),before);
 });
-test('full project Lexmark case is independently reproduced from catalogued quantities',(t)=>{
+test('project Lexmark rejects removed vocabulary before calculating native inventories',(t)=>{
   const folder=path.resolve(root,'../../04_CASE-STUDIES-AND-WORKING-DATA/Lexmark-printer/2026-10-12_nested_DPP_demo');
   const connected=path.join(folder,'04_Printer_with_Cartridge_CONNECTED_backup.ttl');if(!fs.existsSync(connected))return t.skip('Local Lexmark project fixture is not included in the public repository.');
-  const data=JSON.parse(fs.readFileSync(path.join(folder,'verification.json')));const e=engine();e.load(fs.readFileSync(connected,'utf8'));
+  const text=fs.readFileSync(connected,'utf8'),e=engine();if(/prs:FlowLink/.test(text)){assert.throws(()=>e.load(text),/FlowLink terms outside/);return;}
+  const data=JSON.parse(fs.readFileSync(path.join(folder,'verification.json')));e.load(text);
   const catalogue=JSON.parse(fs.readFileSync(path.join(root,'data/bonsai-catalogue-index.json')));
   const lookup=(code,region,unit)=>catalogue.entries.find(x=>x[0]===code)[3].find(x=>x[0]===region&&x[1]===unit)[2];
   const hardware=74.7*lookup('M_STEL','CN','tonnes')+39.49*lookup('M_PLAS','CN','tonnes')+1.69*lookup('M_GLAS_01_RES','CN','tonnes')+4.65*lookup('M_ELMA','CN','tonnes')+0.0577*lookup('M_CHEM','CN','tonnes')+18/1e6*lookup('M_electricity','CN','TJ')*1000;
   const cart=data.cartridgeOriginalRows.rows.reduce((sum,row)=>{ const [originalCode,region]=row.source.replace('BONSAI ','').split('|'); const code=originalCode==='M_RUBP'?'M_RUBP_01_RES':originalCode==='A_POWG'?'M_electricity':originalCode; const amount=row.unit==='kWh'?row.quantity*3.6/1e6*1000:row.quantity; return sum+amount*lookup(code,region,row.unit==='kg'?'tonnes':'TJ'); },0);
-  near(total(e),hardware+cart);near(total(e),data.climateKg);assert.equal(e.value('flowLinks().length'),9);assert.deepEqual(e.value('validationIssues()'),[]);
+  near(total(e),hardware+cart);near(total(e),data.climateKg);assert.equal(e.value('activityConnections().length'),9);assert.deepEqual(e.value('validationIssues()'),[]);
   const roundtrip=engine();roundtrip.load(e.export());near(total(roundtrip),total(e));assert.equal(roundtrip.value('state.connectedDpps.length'),2);
 });
 test('different receiving and supplier units use explicit new demand, with no silent mass/item conversion',()=>{
   const e=setup();e.run(`state.dataset.activities[0].flows[0].unitUri=KG_URI;state.dataset.activities[0].flows[0].amount='100'`);
   e.prepare(fixture('cartridge'));e.attach(1);assert.equal(e.value('state.dataset.activities[0].flows[0].unitUri'),'https://w3id.org/mintjesba/pefdpp/ef31-units#Item');near(total(e),2*3.041537783);
 });
-test('every final Lexmark upload file calculates independently without unresolved backgrounds',(t)=>{
+test('project Lexmark files follow the strict vocabulary policy before calculation',(t)=>{
   const folder=path.resolve(root,'../../04_CASE-STUDIES-AND-WORKING-DATA/Lexmark-printer/2026-10-12_nested_DPP_demo');
   if(!fs.existsSync(folder))return t.skip('Local Lexmark project fixture is not included in the public repository.');
   for(const file of ['01_Printer_DPP_import_first.ttl','02_Cartridge_DPP_nested.ttl','02a_Cartridge_before_nested_supply.ttl','03_Plastic_supply_DPP.ttl','04_Printer_with_Cartridge_CONNECTED_backup.ttl']){
-    const e=engine();e.load(fs.readFileSync(path.join(folder,file),'utf8'));total(e);assert.deepEqual(e.value('validationIssues()'),[],file);assert.deepEqual(e.value('state.compatReport.warnings'),[],file);
+    const e=engine(),text=fs.readFileSync(path.join(folder,file),'utf8');if(/prs:FlowLink/.test(text)){assert.throws(()=>e.load(text),/FlowLink terms outside/);continue;}e.load(text);total(e);assert.deepEqual(e.value('validationIssues()'),[],file);assert.deepEqual(e.value('state.compatReport.warnings'),[],file);
   }
 });
 test('real PV source can be attached and scaled through a parent input',(t)=>{
-  const file=path.resolve(root,'../../04_CASE-STUDIES-AND-WORKING-DATA/PV-panel/calculator_upload_2026-10-08/01_PV_UPLOAD_selected_inputs.ttl');if(!fs.existsSync(file))return t.skip('Local CE-RISE project fixture is not included in the public repository.');
+  const file=path.join(root,'examples/pv_simplified_publication.ttl');if(!fs.existsSync(file))return t.skip('Local CE-RISE project fixture is not included in the public repository.');
   const e=setup();e.prepare(fs.readFileSync(file,'utf8'));e.attach(2);near(total(e),2*48.42400013063052);assert.deepEqual(e.value('validationIssues()'),[]);
 });
-test('real Viessmann subset imports and its contribution propagates through a connection',(t)=>{
+test('project Viessmann checks publication vocabulary before propagating demand',(t)=>{
   const file=path.resolve(root,'../../05_PRESENTATIONS-AND-PUBLICATIONS/Presentations/2026-10-06_Viessmann_SEE_workshop/demo/viessmann/01_Viessmann_indoor_selected_inputs_canonical.ttl');if(!fs.existsSync(file))return t.skip('Local CE-RISE project fixture is not included in the public repository.');
-  const source=fs.readFileSync(file,'utf8');const baseline=engine();baseline.load(source);const e=setup();e.prepare(source);e.attach(3);near(total(e),3*total(baseline));assert.deepEqual(e.value('validationIssues()'),[]);
+  const source=fs.readFileSync(file,'utf8');const baseline=engine();if(/prs:FlowLink/.test(source)){assert.throws(()=>baseline.load(source),/FlowLink terms outside/);return;}baseline.load(source);const e=setup();e.prepare(source);e.attach(3);near(total(e),3*total(baseline));assert.deepEqual(e.value('validationIssues()'),[]);
 });
