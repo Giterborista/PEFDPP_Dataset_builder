@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Urbanist:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles/styles.css?v=20261029-ef1" />
+    <link rel="stylesheet" href="styles/styles.css?v=20261030-network-disclosures" />
   </head>
   <body>
     <header class="topbar">
@@ -263,14 +263,10 @@
         <section id="reviewValidationCenter" class="validation-center" aria-live="polite"></section>
         <section id="dppHierarchy" class="dpp-hierarchy" hidden aria-label="Connected DPP hierarchy"></section>
 
-        <section id="systemGraph" class="review-panel system-graph-panel">
-          <div class="section-heading">
-            <div>
-              <h2>Product-system connections</h2>
-            </div>
-          </div>
+        <details id="systemGraph" class="review-panel system-graph-panel network-disclosure" open>
+          <summary><h2>Product-system connections</h2></summary>
           <div id="graphPreview" class="system-graph" aria-label="Product system graph"></div>
-        </section>
+        </details>
 
         <section id="climateImpact" class="review-panel climate-panel">
           <div class="section-heading">
@@ -345,6 +341,6 @@
     </dialog>
     <script src="src/dpp-connections.js?v=20261029-strict3"></script>
     <script src="src/climate-characterisation.js?v=20261029-1"></script>
-    <script src="src/app.js?v=20261029-waste-inputs"></script>
+    <script src="src/app.js?v=20261030-network-disclosures"></script>
   </body>
 </html>

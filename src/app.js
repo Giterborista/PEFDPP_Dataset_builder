@@ -1902,9 +1902,29 @@ function renderSemanticTree() {
   node.innerHTML = `<ul><li><strong>PEFStudy</strong><span>${escapeHtml(state.study.title)}</span><ul><li><strong>Goal</strong></li><li><strong>Scope</strong><ul><li><strong>FunctionalUnit</strong><span>${escapeHtml(state.study.functionalUnit.whatProvided)}</span></li><li><strong>SystemBoundary</strong></li></ul></li><li><strong>ProductSystem</strong><span>${escapeHtml(state.productSystem.name)}</span><ul>${state.dataset.activities.map((activity) => `<li><strong>ActivityLink → Activity</strong><span>${escapeHtml(activity.name)}</span><ul>${activity.flows.map((flow) => `<li>Flow · ${escapeHtml(flow.label)} · ${escapeHtml(flowTypeLabel(flow.flowTypeUri))}</li>`).join("")}</ul></li>`).join("")}${linkItems}</ul></li></ul>`;
 }
 
+// View state only: never added to the semantic dataset or its exports.
+const graphDisclosureState = { dataset: null, large: null, systemOpen: true, networkOpen: true };
+
+function graphDisclosureSettings() {
+  const large = state.dataset.activities.length > 4;
+  if (graphDisclosureState.dataset !== state.dataset || graphDisclosureState.large !== large) {
+    Object.assign(graphDisclosureState, { dataset: state.dataset, large, systemOpen: !large, networkOpen: !large });
+  }
+  return graphDisclosureState;
+}
+
+function rememberGraphDisclosure(target) {
+  if (!target?.isConnected) return;
+  const key = target.id === "systemGraph" ? "systemOpen" : target.id === "activityNetwork" ? "networkOpen" : "";
+  if (key) graphDisclosureSettings()[key] = target.open;
+}
+
 function renderGraph() {
   const node = el("graphPreview");
   if (!node) return;
+  const disclosure = graphDisclosureSettings();
+  const systemGraph = el("systemGraph");
+  if (systemGraph) systemGraph.open = disclosure.systemOpen;
   const report = climateReport();
   const directByFlow = new Map(report.direct.map((row) => [row.flow.id, row]));
   const connections = state.dataset.activities.flatMap((receivingActivity) => receivingActivity.flows
@@ -1953,7 +1973,7 @@ function renderGraph() {
   const standalone = state.dataset.activities.length === 1 ? `<div class="network-main standalone-network"><section class="network-column"><span>Product system activity</span>${activityNode(state.dataset.activities[0])}</section></div>` : "";
   const disconnected = state.dataset.activities.length > 1 && disconnectedActivities.length ? `<section class="disconnected-area"><h3>Disconnected activities</h3><div>${disconnectedActivities.map((activity) => activityNode(activity, true)).join("")}</div></section>` : "";
   const empty = state.dataset.activities.length ? "" : `<div class="graph-empty">Add an activity to view the product-system network.</div>`;
-  node.innerHTML = `${standalone}${connectionRows ? `<section class="connection-map"><div class="connection-map-heading"><h3>Activity network</h3><span>${connections.length} internal connection${connections.length === 1 ? "" : "s"}</span></div>${connectionRows}</section>` : ""}${disconnected}${empty}`;
+  node.innerHTML = `${standalone}${connectionRows ? `<details id="activityNetwork" class="network-disclosure activity-network" ${disclosure.networkOpen ? "open" : ""}><summary><h3>Activity network</h3><span>${connections.length} internal connection${connections.length === 1 ? "" : "s"}</span></summary><div class="connection-map">${connectionRows}</div></details>` : ""}${disconnected}${empty}`;
 }
 
 function renderCompatibility() {
@@ -2584,6 +2604,7 @@ async function copyExport() {
 }
 
 document.addEventListener("input", handleEditorEvent);
+document.addEventListener("toggle", (event) => rememberGraphDisclosure(event.target), true);
 document.addEventListener("change", handleEditorEvent);
 document.addEventListener("click", (event) => {
   const target = event.target;
@@ -2626,7 +2647,11 @@ document.addEventListener("click", (event) => {
     }, 0);
   }
   if (editFlow) { state.editingFlowId = state.editingFlowId === editFlow.dataset.editFlow ? "" : editFlow.dataset.editFlow; renderFlows(); }
-  if (reviewTarget) el(reviewTarget.dataset.reviewTarget)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  if (reviewTarget) {
+    const section = el(reviewTarget.dataset.reviewTarget);
+    if (section?.id === "systemGraph") { section.open = true; graphDisclosureSettings().systemOpen = true; }
+    section?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
   if (target.id === "fitGraph") el("graphPreview")?.scrollIntoView({ behavior: "smooth", block: "center" });
   const exportPreview = target.closest?.("[data-export-preview]");
   if (exportPreview) {
